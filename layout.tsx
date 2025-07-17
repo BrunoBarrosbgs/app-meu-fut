@@ -1,0 +1,38 @@
+import type { Metadata } from 'next';
+import './globals.css';
+import { Toaster } from "@/components/ui/toaster";
+import { cn } from '@/lib/utils';
+import { GeistSans } from 'geist/font/sans';
+import { Orbitron } from 'next/font/google';
+
+const orbitron = Orbitron({
+  subsets: ['latin'],
+  weight: ['700'],
+  variable: '--font-orbitron',
+});
+
+export const metadata: Metadata = {
+  title: 'Meu Fut - Gestão de Times',
+  description: "A plataforma definitiva para organizar e elevar o nível do seu futebol amador. Gerencie seu time, analise táticas com IA e compita com amigos.",
+};
+
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+
+  return (
+    <html lang="pt-BR" className="dark">
+      <body className={cn(
+          "font-sans antialiased",
+          GeistSans.variable,
+          orbitron.variable
+        )}>
+          {children}
+        <Toaster />
+      </body>
+    </html>
+  );
+}
