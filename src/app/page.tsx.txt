@@ -1,110 +1,240 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { useAuth } from '@/hooks/use-auth';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { BrainCircuit, Gamepad2, Landmark, Swords, Ticket, Users, BarChart3, ArrowRight } from 'lucide-react';
-import Link from 'next/link';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { useRouter } from 'next/navigation';
+import { Eye, EyeOff, LogIn, X, ShieldCheck, Loader2, User, Users, KeyRound, ArrowRight } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { ProgressDialog } from '@/components/ui/progress-dialog';
+import { players as allPlayers } from '@/lib/mock-data';
+import { cn } from '@/lib/utils';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
-const features = [
-  {
-    icon: Users,
-    title: "Gestão de Elenco",
-    description: "Cadastre jogadores, defina posições, números de camisa e acompanhe estatísticas de forma centralizada.",
-  },
-  {
-    icon: BrainCircuit,
-    title: "Análise Tática com IA",
-    description: "Receba insights táticos gerados por IA para preparar seu time e surpreender os adversários na prancheta.",
-  },
-  {
-    icon: Swords,
-    title: "Criação de Eventos",
-    description: "Agende partidas e treinos com facilidade, notifique os jogadores e controle as confirmações de presença.",
-  },
-  {
-    icon: BarChart3,
-    title: "Estatísticas Detalhadas",
-    description: "Acompanhe o desempenho do time e individual com gráficos de vitórias, derrotas e rankings de artilharia.",
-  },
-  {
-    icon: Gamepad2,
-    title: "Minigame de Pênaltis",
-    description: "Desafie a si mesmo em um divertido minigame de cobrança de pênaltis e compita pelo topo do ranking.",
-  },
-  {
-    icon: Ticket,
-    title: "Apostas e Competição",
-    description: "Aumente a emoção dos jogos com um sistema de apostas interno, onde os jogadores podem usar créditos virtuais.",
-  },
-  {
-    icon: Landmark,
-    title: "Caixa do Clube",
-    description: "Controle as finanças do time, registre depósitos, retiradas e acompanhe o saldo de forma transparente.",
-  },
-];
+type LoginStatus = 'idle' | 'success' | 'error' | 'loading';
+type LoginRole = 'player' | 'admin';
 
-export default function HomePage() {
-  return (
-    <main className="flex min-h-screen w-full flex-col items-center bg-transparent">
-      
-      {/* Hero Section */}
-      <section className="relative flex w-full flex-col items-center justify-center text-center py-24 md:py-32 px-4 overflow-hidden">
-        <h1 className="font-headline text-5xl md:text-7xl font-bold text-glow">
-          Meu Fut
-        </h1>
-        <p className="mt-4 max-w-3xl text-lg text-muted-foreground md:text-xl">
-          A plataforma completa para gestão do seu time. Da escalação à análise tática, das finanças à resenha. Eleve o nível do seu futebol.
-        </p>
-        <div className="mt-8 flex flex-col sm:flex-row gap-4">
-            <Button asChild size="lg" className="font-bold tracking-wider text-lg">
-              <Link href="/login">Acessar o Painel</Link>
+const ACTIVE_TEAM_ID_KEY = 'meu_fut_active_team_id';
+
+export default function LoginPage() {
+    const { login } = useAuth();
+    const router = useRouter();
+    
+    const [teamId, setTeamId] = useState('');
+    const [activeTeamId, setActiveTeamId] = useState<string | null>(null);
+
+    const [loginType, setLoginType] = useState<LoginRole>('player');
+    const [selectedPlayerId, setSelectedPlayerId] = useState('');
+    const [playerPassword, setPlayerPassword] = useState('');
+    const [directorPassword, setDirectorPassword] = useState('');
+
+    const [isPasswordVisible, setPasswordVisible] = useState(false);
+    const [status, setStatus] = useState<LoginStatus>('idle');
+    const [loginResultInfo, setLoginResultInfo] = useState<{ role?: 'admin' | 'player'; name?: string }>({});
+
+    useEffect(() => {
+        const storedTeamId = localStorage.getItem(ACTIVE_TEAM_ID_KEY);
+        if (storedTeamId) {
+            setActiveTeamId(storedTeamId);
+        }
+    }, []);
+
+    const handleActivateTeam = () => {
+        if (teamId.trim()) {
+            localStorage.setItem(ACTIVE_TEAM_ID_KEY, teamId);
+            setActiveTeamId(teamId);
+        }
+    };
+    
+    const handleLogoutTeam = () => {
+        localStorage.removeItem(ACTIVE_TEAM_ID_KEY);
+        // Also clear user auth when switching teams
+        localStorage.removeItem('meu_fut_auth'); 
+        setActiveTeamId(null);
+        setTeamId('');
+    };
+
+    const handleLogin = () => {
+        setStatus('loading');
+        
+        let loginResult;
+        if (loginType === 'player') {
+            const playerToLogin = allPlayers.find(p => p.id.toString() === selectedPlayerId);
+            if (!playerToLogin) {
+                 setStatus('error');
+                 return;
+            }
+            loginResult = login({ role: 'player', password: playerPassword, player: playerToLogin });
+        } else { // admin
+            loginResult = login({ role: 'admin', password: directorPassword });
+        }
+
+        if (loginResult.success) {
+            setStatus('success');
+            setLoginResultInfo({ role: loginResult.role, name: loginResult.name });
+        } else {
+            setStatus('error');
+        }
+    };
+
+    const resetState = () => {
+        setStatus('idle');
+        setPlayerPassword('');
+        setDirectorPassword('');
+    };
+
+    const renderPasswordInput = (value: string, onChange: (val: string) => void) => (
+         <div className="relative">
+            <Input
+                id="password"
+                type={isPasswordVisible ? 'text' : 'password'}
+                placeholder="Senha do Time"
+                value={value}
+                onChange={(e) => onChange(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+                disabled={status === 'loading'}
+            />
+            <button
+                type="button"
+                onClick={() => setPasswordVisible(!isPasswordVisible)}
+                className="absolute inset-y-0 right-10 flex items-center text-muted-foreground pr-3"
+            >
+                {isPasswordVisible ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+             <Button
+                size="icon"
+                variant="ghost"
+                className="absolute inset-y-0 right-0"
+                onClick={handleLogin}
+                disabled={status === 'loading' || status === 'success'}
+            >
+                {status === 'loading' ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogIn size={16} />}
             </Button>
         </div>
-      </section>
+    );
 
-      {/* Features Section */}
-      <section className="w-full max-w-6xl px-4 py-16">
-        <div className="text-center mb-12">
-            <h2 className="text-center font-headline text-4xl text-glow">Tudo que seu time precisa</h2>
-            <p className="text-muted-foreground mt-2 max-w-2xl mx-auto">
-                Ferramentas poderosas e fáceis de usar para organizar, analisar e competir.
-            </p>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {features.map((feature, index) => (
-            <Card key={index} className="group relative overflow-hidden border-primary/20 hover:border-primary/50 transition-all duration-300">
-                <div className="absolute top-0 left-0 h-full w-full bg-gradient-to-br from-card to-secondary opacity-50 group-hover:opacity-80 transition-opacity duration-300"></div>
-                <CardHeader className="relative z-10">
-                    <div className="p-3 rounded-lg bg-primary/10 border border-primary/20 self-start">
-                        <feature.icon className="h-8 w-8 text-primary" />
-                    </div>
-                </CardHeader>
-                <CardContent className="relative z-10">
-                    <h3 className="font-headline text-xl mb-2">{feature.title}</h3>
-                    <p className="text-muted-foreground text-sm">{feature.description}</p>
-                </CardContent>
-            </Card>
-          ))}
-        </div>
-      </section>
+    return (
+        <>
+            <ProgressDialog 
+                isOpen={status === 'success'}
+                onOpenChange={(isOpen) => {
+                    if (!isOpen) router.push('/dashboard');
+                }}
+                onFinished={() => router.push('/dashboard')}
+                title="Acesso Destravado"
+                description={`Bem-vindo, ${loginResultInfo.name}! Redirecionando para a arena...`}
+                duration={2000}
+                icon={<ShieldCheck className="h-16 w-16 text-primary animate-pulse" />}
+            />
+            <div className="flex min-h-screen w-full flex-col items-center justify-center p-4 bg-background">
+                <div className="absolute inset-0 z-0 overflow-hidden">
+                    <div className="absolute -inset-10 bg-gradient-to-br from-primary/10 via-background to-accent/10 opacity-50 animate-pulse duration-[8000ms]"></div>
+                </div>
 
-       {/* Final CTA Section */}
-      <section className="w-full text-center py-20 md:py-32 px-4">
-        <h2 className="font-headline text-4xl text-glow">Pronto para começar?</h2>
-        <p className="mt-4 max-w-2xl mx-auto text-lg text-muted-foreground">
-          Acesse o painel e descubra uma nova forma de jogar e gerenciar.
-        </p>
-        <div className="mt-8 flex items-center justify-center gap-4">
-          <Button asChild size="lg" className="font-bold tracking-wider text-lg">
-            <Link href="/login">
-              Leve seu time ao próximo nível <ArrowRight className="ml-2"/>
-            </Link>
-          </Button>
-        </div>
-      </section>
-
-      {/* Footer */}
-       <footer className="w-full text-center p-6 mt-16 text-xs text-muted-foreground border-t border-primary/10">
-        <p>&copy; {new Date().getFullYear()} Meu Fut - Produto Bruck Apps. Todos os direitos reservados.</p>
-      </footer>
-    </main>
-  );
+                <div className="z-10 text-center mb-8">
+                    <h1 className="font-headline text-5xl md:text-6xl font-bold text-glow">Meu Fut</h1>
+                    <p className="mt-2 text-lg text-muted-foreground">Onde a paixão pelo Futebol encontra a tecnologia.</p>
+                </div>
+                
+                 <Card className="w-full max-w-sm">
+                    {!activeTeamId ? (
+                        <>
+                         <CardHeader>
+                            <CardTitle>Ativar Time</CardTitle>
+                            <CardDescription>Insira a chave de acesso (ID do Time) fornecida pelo administrador.</CardDescription>
+                         </CardHeader>
+                         <CardContent className="space-y-4">
+                            <div className="space-y-2">
+                                <Label htmlFor="team-id">ID do Time</Label>
+                                <Input 
+                                    id="team-id" 
+                                    placeholder="ex: nome-do-time-cidade-ano"
+                                    value={teamId}
+                                    onChange={(e) => setTeamId(e.target.value)}
+                                    onKeyDown={(e) => e.key === 'Enter' && handleActivateTeam()}
+                                />
+                            </div>
+                         </CardContent>
+                         <CardFooter>
+                            <Button className="w-full" onClick={handleActivateTeam} disabled={!teamId.trim()}>
+                                Ativar Time <ArrowRight className="ml-2"/>
+                            </Button>
+                         </CardFooter>
+                        </>
+                    ) : (
+                        <>
+                        <CardHeader>
+                            <CardTitle>Portal de Acesso</CardTitle>
+                            <CardDescription>Time Ativo: <span className="font-bold text-primary">{activeTeamId}</span></CardDescription>
+                             <button onClick={handleLogoutTeam} className="text-xs text-muted-foreground hover:text-primary underline">
+                                Trocar de time
+                            </button>
+                        </CardHeader>
+                        <CardContent className="p-6 pt-0">
+                            {status === 'error' ? (
+                                <div className="pt-4">
+                                    <Alert variant="destructive" className="animate-in fade-in-50">
+                                        <X className="h-4 w-4" />
+                                        <AlertTitle>Acesso Negado</AlertTitle>
+                                        <AlertDescription>
+                                        Dados inválidos. Verifique o jogador ou a senha.
+                                        </AlertDescription>
+                                        <button onClick={resetState} className="absolute top-2 right-2 p-1 text-destructive hover:bg-destructive/20 rounded-md">
+                                            <X size={16}/>
+                                        </button>
+                                    </Alert>
+                                </div>
+                            ) : (
+                                <div className="pt-4 space-y-6">
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <Button onClick={() => setLoginType('player')} variant={loginType === 'player' ? 'default' : 'outline'}>
+                                            <Users className="mr-2"/> Jogador
+                                        </Button>
+                                        <Button onClick={() => setLoginType('admin')} variant={loginType === 'admin' ? 'default' : 'outline'}>
+                                            <User className="mr-2"/> Diretor
+                                        </Button>
+                                    </div>
+                                    
+                                    {loginType === 'player' && (
+                                        <div className="space-y-4 pt-2 animate-in fade-in-20">
+                                            <div className="space-y-2">
+                                                <Label htmlFor="player-select">Seu Nome</Label>
+                                                <Select value={selectedPlayerId} onValueChange={setSelectedPlayerId} disabled={status === 'loading'}>
+                                                    <SelectTrigger id="player-select">
+                                                        <SelectValue placeholder="Selecione seu nome..." />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        {allPlayers.map(player => (
+                                                            <SelectItem key={player.id} value={player.id.toString()}>{player.name}</SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label htmlFor="player-password">Senha do Time</Label>
+                                                {renderPasswordInput(playerPassword, setPlayerPassword)}
+                                            </div>
+                                        </div>
+                                    )}
+                                    
+                                    {loginType === 'admin' && (
+                                        <div className="space-y-4 pt-2 animate-in fade-in-20">
+                                            <div className="space-y-2">
+                                                <Label htmlFor="director-password">Senha do Diretor</Label>
+                                                {renderPasswordInput(directorPassword, setDirectorPassword)}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </CardContent>
+                        </>
+                    )}
+                </Card>
+            </div>
+        </>
+    );
 }
