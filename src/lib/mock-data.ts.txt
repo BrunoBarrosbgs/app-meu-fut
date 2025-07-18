@@ -1,0 +1,197 @@
+import type { Player, Match, MatchLineup, FinancialTransaction, Goalscorer, Championship } from './types';
+
+// This initial list is now just a fallback. The primary source of truth will be localStorage.
+export const players: Player[] = [
+  { id: 1, name: 'Adriano Imperador', position: 'Atacante', gamesPlayed: 15, goals: 12, assists: 4, credits: 0, avatarUrl: 'https://placehold.co/400x533', shirtNumber: 9, attendances: 0, absences: 0, penaltyGoals: 0, manOfTheMatchAwards: 3 },
+  { id: 2, name: 'Bruxo Ronaldinho', position: 'Meio-campista', gamesPlayed: 18, goals: 8, assists: 15, credits: 0, avatarUrl: 'https://placehold.co/400x533', shirtNumber: 10, attendances: 0, absences: 0, penaltyGoals: 0, manOfTheMatchAwards: 5 },
+  { id: 3, name: 'Cafu', position: 'Defensor', gamesPlayed: 20, goals: 1, assists: 5, credits: 0, avatarUrl: 'https://placehold.co/400x533', shirtNumber: 2, attendances: 0, absences: 0, penaltyGoals: 0, manOfTheMatchAwards: 1 },
+  { id: 4, name: 'Dida', position: 'Goleiro', gamesPlayed: 19, goals: 0, assists: 0, credits: 0, avatarUrl: 'https://placehold.co/400x533', shirtNumber: 1, attendances: 0, absences: 0, penaltyGoals: 0, manOfTheMatchAwards: 2 },
+  { id: 5, name: 'Fenômeno Ronaldo', position: 'Atacante', gamesPlayed: 16, goals: 18, assists: 3, credits: 0, avatarUrl: 'https://placehold.co/400x533', shirtNumber: 11, attendances: 0, absences: 0, penaltyGoals: 0, manOfTheMatchAwards: 7 },
+  { id: 6, name: 'Zico', position: 'Meio-campista', gamesPlayed: 22, goals: 10, assists: 10, credits: 0, avatarUrl: 'https://placehold.co/400x533', shirtNumber: 8, attendances: 0, absences: 0, penaltyGoals: 0, manOfTheMatchAwards: 4 },
+  { id: 7, name: 'Roberto Carlos', position: 'Defensor', gamesPlayed: 21, goals: 3, assists: 8, credits: 0, avatarUrl: 'https://placehold.co/400x533', shirtNumber: 6, attendances: 0, absences: 0, penaltyGoals: 0, manOfTheMatchAwards: 0 },
+];
+
+const createDefaultLineup = (allPlayers: Player[]): MatchLineup => {
+  return allPlayers.reduce((acc, player) => {
+    acc[player.id] = { status: 'unselected', position: player.position };
+    return acc;
+  }, {} as MatchLineup);
+};
+
+
+export const matches: Match[] = [
+  {
+    id: 1,
+    type: 'match',
+    opponent: 'Os Parças F.C.',
+    date: '2024-08-15',
+    time: '19:00',
+    location: 'Maracanã',
+    status: 'upcoming',
+    confirmedPlayers: [1, 3, 4],
+    declinedPlayers: [],
+    duration: 90,
+    modality: 'Campo',
+    formation: '4-3-3',
+    lineup: createDefaultLineup(players),
+    bettingOpen: true,
+    betAmount: 10,
+  },
+  {
+    id: 2,
+    type: 'match',
+    opponent: 'Tropa do Bruxo',
+    date: '2024-08-22',
+    time: '20:00',
+    location: 'Arena Corinthians',
+    status: 'upcoming',
+    confirmedPlayers: [2, 5, 6, 7],
+    declinedPlayers: [],
+    duration: 90,
+    modality: 'Society',
+    formation: '2-3-1',
+    lineup: createDefaultLineup(players),
+    bettingOpen: true,
+    betAmount: 15,
+  },
+  {
+    id: 3,
+    type: 'match',
+    opponent: 'Amigos do Ronaldão',
+    date: '2024-07-28',
+    time: '16:00',
+    location: 'Mineirão',
+    status: 'past',
+    score: '3 - 1',
+    confirmedPlayers: [1, 2, 3, 4, 5, 6, 7],
+    declinedPlayers: [],
+    duration: 90,
+    modality: 'Campo',
+    formation: '4-4-2',
+    lineup: {
+      1: { status: 'starter', position: 'Atacante' },
+      2: { status: 'starter', position: 'Meio-campista' },
+      3: { status: 'starter', position: 'Defensor' },
+      4: { status: 'starter', position: 'Goleiro' },
+      5: { status: 'starter', position: 'Atacante' },
+      6: { status: 'substitute', position: 'Meio-campista' },
+      7: { status: 'unselected', position: 'Defensor' },
+    },
+    bettingOpen: false,
+    betAmount: 10,
+    goalscorers: [
+      { playerId: 1, goals: 1 },
+      { playerId: 5, goals: 2 },
+    ],
+    ratings: {
+      '1': { total: 12, count: 3, average: 4, voters: [2, 3, 5] },
+      '5': { total: 14, count: 3, average: 4.7, voters: [2, 3, 1] },
+      '2': { total: 10, count: 3, average: 3.3, voters: [1, 3, 5] },
+    },
+  },
+  {
+    id: 4,
+    type: 'match',
+    opponent: 'Galácticos da Várzea',
+    date: '2024-07-21',
+    time: '10:00',
+    location: 'Pacaembu',
+    status: 'past',
+    score: '2 - 2',
+    confirmedPlayers: [1, 2, 3, 4, 5, 6, 7],
+    declinedPlayers: [],
+    duration: 90,
+    modality: 'Society',
+    formation: '3-2-1',
+    lineup: createDefaultLineup(players),
+    bettingOpen: false,
+    betAmount: 5,
+    goalscorers: [
+      { playerId: 2, goals: 1 },
+      { playerId: 6, goals: 1 },
+    ],
+    ratings: {},
+  },
+   {
+    id: 5,
+    type: 'match',
+    opponent: 'Veteranos F.C.',
+    date: '2024-07-14',
+    time: '11:00',
+    location: 'Campo do Bairro',
+    status: 'past',
+    score: undefined,
+    confirmedPlayers: [1, 2, 3, 4, 5, 6, 7],
+    declinedPlayers: [],
+    duration: 90,
+    modality: 'Campo',
+    formation: '4-4-2',
+    lineup: {
+      1: { status: 'starter', position: 'Atacante' },
+      2: { status: 'starter', position: 'Meio-campista' },
+      3: { status: 'starter', position: 'Defensor' },
+      4: { status: 'starter', position: 'Goleiro' },
+      5: { status: 'starter', position: 'Atacante' },
+      6: { status: 'substitute', position: 'Meio-campista' },
+      7: { status: 'unselected', position: 'Defensor' },
+    },
+    bettingOpen: false,
+    betAmount: 10,
+    goalscorers: [],
+    ratings: {},
+  },
+];
+
+
+export const initialClubFinances = {
+    balance: 0,
+};
+
+export const transactions: FinancialTransaction[] = [
+    { id: 1, type: 'deposit', description: 'Investimento inicial da diretoria', amount: 1000.00, date: '2024-01-01' },
+    { id: 2, type: 'bet_cut', description: 'Taxa de aposta da partida #3', amount: 45.50, date: '2024-07-28' },
+    { id: 3, type: 'withdrawal', description: 'Compra de novos coletes', amount: -250.00, date: '2024-07-29' },
+    { id: 4, type: 'bet_cut', description: 'Taxa de aposta da partida #4', amount: 61.00, date: '2024-07-21' },
+    { id: 5, type: 'deposit', description: 'Doação de patrocinador', amount: 400.00, date: '2024-08-01' },
+];
+
+export const championships: Championship[] = [
+    {
+        id: 1,
+        name: "Liga da Várzea 2023",
+        year: 2023,
+        finalPosition: 1,
+        highlights: "Uma campanha histórica marcada pela superação. O time começou desacreditado, mas encontrou sua força na união do elenco, culminando com uma vitória emocionante nos pênaltis na grande final.",
+        standouts: [
+            { playerId: 5, description: "Artilheiro do campeonato com 12 gols, sendo decisivo em todos os jogos do mata-mata." },
+            { playerId: 4, description: "Herói da final, defendendo duas cobranças de pênalti e garantindo o título." },
+            { playerId: 2, description: "Líder em assistências e o cérebro do time, controlando o meio-campo com maestria." }
+        ]
+    },
+    {
+        id: 2,
+        name: "Copa Society Amigos da Bola",
+        year: 2024,
+        finalPosition: 3,
+        highlights: "O time demonstrou grande evolução tática e um futebol vistoso. Apesar da eliminação na semifinal, a campanha foi positiva e deixou uma ótima impressão, com o melhor ataque da competição.",
+        standouts: [
+            { playerId: 1, description: "Mostrou grande poder de finalização, marcando gols importantes e sendo uma referência no ataque." },
+            { playerId: 7, description: "Surpreendeu pela polivalência, atuando com segurança na defesa e apoiando o ataque com qualidade." }
+        ]
+    }
+];
+
+
+// Helper function to get players from localStorage or fall back to mock data
+export function getPlayers(): Player[] {
+    if (typeof window === 'undefined') {
+        return players; // Return initial players during server-side rendering
+    }
+    try {
+        const storedPlayers = localStorage.getItem('resenha_fc_players');
+        return storedPlayers ? JSON.parse(storedPlayers) : players;
+    } catch (error) {
+        console.error("Failed to load players from localStorage, using initial data.", error);
+        return players;
+    }
+}

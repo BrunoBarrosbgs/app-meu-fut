@@ -1,0 +1,62 @@
+
+'use client';
+
+import { cn } from "@/lib/utils";
+import { Menu } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { MobileNav } from "./mobile-nav";
+
+interface HeaderProps {
+  title: string;
+  className?: string;
+  pageContext?: string;
+}
+
+const pageDescriptions: Record<string, string> = {
+  dashboard: "Visão geral do seu império.",
+  squad: "Gerencie seus craques e futuras lendas.",
+  matches: "Agende os confrontos e prepare-se para a glória.",
+  calendar: "O futuro do time, data a data.",
+  tactics: "Onde a estratégia ganha vida.",
+  stats: "Os números que contam a nossa história.",
+  game: "A resenha virtual. Mostre sua habilidade.",
+  "locker-room": "O coração do time. Onde a resenha acontece.",
+  betting: "Faça sua fezinha e aumente a emoção.",
+  finances: "A saúde financeira que sustenta o sonho.",
+  profile: "Seu legado em números e glórias.",
+  settings: "Ajuste os detalhes para o sucesso.",
+  default: "A resenha nunca termina.",
+};
+
+export function Header({ title, className, pageContext = 'default' }: HeaderProps) {
+  const description = pageDescriptions[pageContext] || pageDescriptions.default;
+
+  return (
+    <div className={cn("mb-8", className)}>
+      <div className="flex items-center gap-4">
+        <Sheet>
+            <SheetTrigger asChild>
+                <Button variant="outline" size="icon" className="shrink-0 md:hidden">
+                    <Menu className="h-5 w-5" />
+                    <span className="sr-only">Toggle navigation menu</span>
+                </Button>
+            </SheetTrigger>
+            <SheetContent side="left" className="p-0 w-[280px]">
+                <SheetHeader className="sr-only">
+                    <SheetTitle>Menu de Navegação</SheetTitle>
+                </SheetHeader>
+                <MobileNav />
+            </SheetContent>
+        </Sheet>
+
+        <div>
+            <h1 className="text-3xl font-headline font-bold text-glow">{title}</h1>
+            <p className="mt-1 text-muted-foreground transition-all duration-300 animate-in fade-in">
+              {description}
+            </p>
+        </div>
+      </div>
+    </div>
+  );
+}

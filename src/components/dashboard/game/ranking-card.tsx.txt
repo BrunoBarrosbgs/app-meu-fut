@@ -1,0 +1,56 @@
+
+'use client';
+
+import type { Player } from "@/lib/types";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Crown } from "lucide-react";
+
+interface RankingCardProps {
+    rankedPlayers: Player[];
+}
+
+export function RankingCard({ rankedPlayers }: RankingCardProps) {
+    return (
+        <Card>
+            <CardHeader>
+                <CardTitle>Ranking de Pênaltis</CardTitle>
+                <CardDescription>Jogadores com mais gols no minigame.</CardDescription>
+            </CardHeader>
+            <CardContent>
+                <Table>
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead>Pos.</TableHead>
+                            <TableHead>Jogador</TableHead>
+                            <TableHead className="text-right">Gols</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {rankedPlayers.slice(0, 10).map((player, index) => (
+                            <TableRow key={player.id}>
+                                <TableCell className="font-bold">
+                                    <div className="flex items-center gap-2">
+                                        {index === 0 && <Crown className="w-4 h-4 text-yellow-400" />}
+                                        <span>{index + 1}</span>
+                                    </div>
+                                </TableCell>
+                                <TableCell>
+                                    <div className="flex items-center gap-3">
+                                        <Avatar className="h-8 w-8">
+                                            <AvatarImage src={player.avatarUrl} alt={player.name} data-ai-hint="player photo" />
+                                            <AvatarFallback>{player.name.charAt(0)}</AvatarFallback>
+                                        </Avatar>
+                                        <span className="font-medium">{player.name}</span>
+                                    </div>
+                                </TableCell>
+                                <TableCell className="text-right font-mono text-lg">{player.penaltyGoals || 0}</TableCell>
+                            </TableRow>
+                        ))}
+                    </TableBody>
+                </Table>
+            </CardContent>
+        </Card>
+    )
+}

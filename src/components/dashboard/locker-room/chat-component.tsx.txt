@@ -1,0 +1,165 @@
+
+'use client';
+
+import { useState, useEffect, useRef } from 'react';
+import { getFirebase } from '@/lib/firebase';
+import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp } from 'firebase/firestore';
+import type { Player, ChatMessage } from '@/lib/types';
+import { useAuth } from '@/hooks/use-auth';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Send } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+
+interface ChatComponentProps {
+    players: Player[];
+}
+
+export function ChatComponent({ players }: ChatComponentProps) {
+    const { auth } = useAuth();
+    const { toast } = useToast();
+    const [messages, setMessages] = useState<ChatMessage[]>([]);
+    const [newMessage, setNewMessage] = useState('');
+    const scrollAreaRef = useRef<HTMLDivElement>(null);
+
+    const currentPlayer = players.find(p => p.id.toString() === auth.id) || 
+                          (auth.role === 'admin' ? { id: auth.id, name: auth.name, avatarUrl: '' } : null);
+
+    useEffect(() => {
+        const { db } = getFirebase();
+        if (!db) return;
+
+        const q = query(collection(db, 'chat-locker-room'), orderBy('timestamp', 'asc'));
+        const unsubscribe = onSnapshot(q, (querySnapshot) => {
+            const msgs: ChatMessage[] = [];
+            querySnapshot.forEach((doc) => {
+                msgs.push({ id: doc.id, ...doc.data() } as ChatMessage);
+            });
+            setMessages(msgs);
+        }, (error) => {
+            console.error("Error fetching chat messages: ", error);
+            toast({
+                variant: 'destructive',
+                title: 'Erro no Chat',
+                description: 'Não foi possível carregar as mensagens. Verifique a configuração do Firebase.'
+            });
+        });
+
+        return () => unsubscribe();
+    }, [toast]);
+
+    useEffect(() => {
+        if (scrollAreaRef.current) {
+            scrollAreaRef.current.scrollTo({
+                top: scrollAreaRef.current.scrollHeight,
+                behavior: 'smooth'
+            });
+        }
+    }, [messages]);
+    
+    const handleSendMessage = async () => {
+        const { db } = getFirebase();
+        if (newMessage.trim() === '' || !auth.id || !currentPlayer) {
+            if (!db) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Erro de Conexão',
+                    description: 'O chat está desativado. O Firebase não está configurado.'
+                });
+            }
+            return;
+        }
+
+        const messageToSend = newMessage;
+        setNewMessage(''); // Clear input immediately for better UX
+
+        const mentions: (string | number)[] = [];
+        const mentionedPlayerIds: (string | number)[] = [];
+
+        const textWithMentions = messageToSend.split(' ').map(word => {
+            if (word.startsWith('@')) {
+                const name = word.substring(1);
+                const player = players.find(p => p.name.toLowerCase().replace(/\s/g, '') === name.toLowerCase());
+                if (player) {
+                    mentions.push(player.name);
+                    mentionedPlayerIds.push(player.id);
+                    return `<span class="text-primary font-bold">${word}</span>`;
+                }
+            }
+            return word;
+        }).join(' ');
+
+        const messageData: Omit<ChatMessage, 'id' | 'mentions'> & { mentions?: (string | number)[] } = {
+            senderId: auth.id,
+            senderName: currentPlayer.name || 'Usuário',
+            senderAvatarUrl: (currentPlayer as Player).avatarUrl || '',
+            text: textWithMentions,
+            timestamp: serverTimestamp(),
+            mentions: mentionedPlayerIds,
+        };
+
+        try {
+            await addDoc(collection(db, 'chat-locker-room'), messageData);
+
+            for (const mentionedId of mentionedPlayerIds) {
+                if (mentionedId !== auth.id) {
+                    await addDoc(collection(db, 'notifications'), {
+                        type: 'mention',
+                        message: `${currentPlayer.name} mencionou você no chat.`,
+                        recipientId: mentionedId,
+                        isRead: false,
+                        timestamp: serverTimestamp(),
+                    });
+                }
+            }
+        } catch (error) {
+            console.error("Error sending message:", error);
+            toast({
+                variant: 'destructive',
+                title: 'Erro ao enviar mensagem',
+                description: 'Não foi possível enviar sua mensagem. Tente novamente.'
+            });
+            setNewMessage(messageToSend); // Restore message on failure
+        }
+    };
+
+    return (
+        <Card className="flex flex-col h-[70vh]">
+            <CardHeader>
+                <CardTitle>Chat do Vestiário</CardTitle>
+            </CardHeader>
+            <CardContent className="flex-grow overflow-hidden flex flex-col">
+                <ScrollArea className="flex-grow pr-4" ref={scrollAreaRef}>
+                    <div className="space-y-4">
+                        {messages.map((msg, index) => (
+                            <div key={index} className="flex items-start gap-3">
+                                <Avatar>
+                                    <AvatarImage src={msg.senderAvatarUrl} data-ai-hint="player photo" />
+                                    <AvatarFallback>{msg.senderName.charAt(0)}</AvatarFallback>
+                                </Avatar>
+                                <div>
+                                    <p className="font-bold text-sm text-primary">{msg.senderName}</p>
+                                    <div className="text-sm" dangerouslySetInnerHTML={{ __html: msg.text }}></div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </ScrollArea>
+                <div className="mt-4 flex gap-2">
+                    <Input
+                        value={newMessage}
+                        onChange={(e) => setNewMessage(e.target.value)}
+                        placeholder="Digite @ para mencionar..."
+                        onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
+                    />
+                    <Button onClick={handleSendMessage}>
+                        <Send size={16} />
+                    </Button>
+                </div>
+            </CardContent>
+        </Card>
+    );
+}

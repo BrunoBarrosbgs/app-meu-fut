@@ -1,0 +1,39 @@
+import type { SVGProps } from 'react';
+
+export function GoalkeeperIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 50 60"
+      fill="none"
+      stroke="black"
+      strokeWidth="0.5"
+      {...props}
+    >
+      {/* Head */}
+      <circle cx="25" cy="10" r="5" fill="#fce4ec" stroke="none" />
+      
+      {/* Torso */}
+      <path d="M15 20 H35 L32 35 H18 Z" fill="#e53935" stroke="none" />
+      
+      {/* Arms */}
+      <path d="M15 20 L5 30 L8 35 L18 30 Z" fill="#e53935" stroke="none" />
+      <path d="M35 20 L45 30 L42 35 L32 30 Z" fill="#e53935" stroke="none" />
+
+      {/* Gloves */}
+      <path d="M5 30 L0 32 L3 38 L8 35 Z" fill="#212121" stroke="none" />
+      <path d="M45 30 L50 32 L47 38 L42 35 Z" fill="#212121" stroke="none" />
+
+      {/* Shorts */}
+      <rect x="18" y="35" width="14" height="10" fill="#212121" stroke="none" />
+      
+      {/* Legs */}
+      <rect x="18" y="45" width="5" height="10" fill="#e53935" stroke="none" />
+      <rect x="27" y="45" width="5" height="10" fill="#e53935" stroke="none" />
+
+       {/* Feet */}
+      <rect x="17" y="55" width="7" height="3" fill="#212121" stroke="none" />
+      <rect x="26" y="55" width="7" height="3" fill="#212121" stroke="none" />
+    </svg>
+  );
+}

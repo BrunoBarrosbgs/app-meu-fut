@@ -1,0 +1,220 @@
+
+'use client';
+
+import { useMemo } from 'react';
+import type { Match, Player } from '@/lib/types';
+import { FieldView } from '@/components/dashboard/tactics/field-view';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
+import { Trophy, Star, ClipboardList, Crown } from 'lucide-react';
+
+interface MatchDetailViewerProps {
+    match: Match;
+    players: Player[];
+    interactive?: boolean;
+}
+
+const positionColors: Record<Player['position'], string> = {
+    'Goleiro': 'bg-yellow-500/20 text-yellow-400 border-yellow-500/50',
+    'Defensor': 'bg-blue-500/20 text-blue-400 border-blue-500/50',
+    'Meio-campista': 'bg-green-500/20 text-green-400 border-green-500/50',
+    'Atacante': 'bg-red-500/20 text-red-400 border-red-500/50',
+};
+
+const getInitialPositions = (starters: Player[], formation: string): Record<number, { x: number; y: number }> => {
+    if (!formation || starters.length === 0) return {};
+    const positions: Record<number, { x: number; y: number }> = {};
+
+    const goalkeeper = starters.find(p => p.position === 'Goleiro');
+    
+    const fieldPlayers = starters
+        .filter(p => p.position !== 'Goleiro')
+        .sort((a, b) => {
+            const positionOrder = { 'Defensor': 1, 'Meio-campista': 2, 'Atacante': 3 };
+            return (positionOrder[a.position] || 4) - (positionOrder[b.position] || 4);
+        });
+    
+    if (goalkeeper) {
+        positions[goalkeeper.id] = { x: 50, y: 92 };
+    }
+    
+    const formationLines = formation.split('-').map(Number).filter(n => !isNaN(n) && n > 0);
+    const totalLines = formationLines.length;
+    let playerIdx = 0;
+
+    formationLines.forEach((numPlayersInLine, lineIndex) => {
+        const yPos = 80 - (lineIndex * (70 / (totalLines > 1 ? totalLines - 1 : 1)));
+        for (let i = 0; i < numPlayersInLine; i++) {
+            if (playerIdx < fieldPlayers.length) {
+                const player = fieldPlayers[playerIdx];
+                const xPos = (i + 1) * 100 / (numPlayersInLine + 1);
+                positions[player.id] = { x: xPos, y: yPos };
+                playerIdx++;
+            }
+        }
+    });
+    
+    if(playerIdx < fieldPlayers.length) {
+        fieldPlayers.slice(playerIdx).forEach((player, i) => {
+            if (!positions[player.id]) {
+                positions[player.id] = { x: 20 + (i * 15), y: 50 };
+            }
+        });
+    }
+
+    return positions;
+};
+
+export function MatchDetailViewer({ match, players, interactive = false }: MatchDetailViewerProps) {
+    const { starters, substitutes } = useMemo(() => {
+        const lineupStarters: Player[] = [];
+        const lineupSubstitutes: Player[] = [];
+
+        if (match.lineup && typeof match.lineup === 'object' && players.length > 0) {
+            Object.keys(match.lineup).forEach(playerId => {
+                const lineupInfo = match.lineup[playerId];
+                const player = players.find(p => p.id.toString() === playerId);
+                if (player) {
+                    if (lineupInfo.status === 'starter') {
+                        lineupStarters.push(player);
+                    } else if (lineupInfo.status === 'substitute') {
+                        lineupSubstitutes.push(player);
+                    }
+                }
+            });
+        }
+        return { starters: lineupStarters, substitutes: lineupSubstitutes };
+    }, [players, match.lineup]);
+
+
+    const playerPositions = useMemo(() => {
+        return match.playerPositions || getInitialPositions(starters, match.formation);
+    }, [starters, match.formation, match.playerPositions]);
+
+    const calledUpPlayers = useMemo(() => [...starters, ...substitutes], [starters, substitutes]);
+    
+    const manOfTheMatch = useMemo(() => {
+        if (!match.ratings || Object.keys(match.ratings).length === 0) return null;
+
+        let bestPlayerId: string | null = null;
+        let highestRating = -1;
+
+        for (const playerId in match.ratings) {
+            const ratingInfo = match.ratings[playerId];
+            if (ratingInfo.average > highestRating) {
+                highestRating = ratingInfo.average;
+                bestPlayerId = playerId;
+            }
+        }
+        return bestPlayerId ? players.find(p => p.id.toString() === bestPlayerId) : null;
+    }, [match.ratings, players]);
+
+    const renderPastMatchInfo = () => (
+        <Card>
+            <CardHeader>
+                <CardTitle className='flex items-center gap-2'><Trophy />Detalhes da Partida</CardTitle>
+                <CardDescription>Placar final e destaques individuais.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+                <p className="text-4xl font-headline text-center text-glow">{match.score}</p>
+
+                 {match.goalscorers && match.goalscorers.length > 0 && (
+                    <div>
+                        <h4 className="text-sm font-bold flex items-center gap-2 mb-2 text-muted-foreground">MARCADORES</h4>
+                        <ul className="text-sm space-y-1">
+                            {match.goalscorers.map(({ playerId, goals }) => (
+                                <li key={playerId} className="flex justify-between p-2 bg-muted/50 rounded-md">
+                                    <span>{players.find(p => p.id === playerId)?.name}</span>
+                                    <span className="font-bold">{goals} gol(s)</span>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
+                
+                {manOfTheMatch && (
+                    <div>
+                        <h4 className="text-sm font-bold flex items-center gap-2 mb-2 text-muted-foreground"><Crown size={14} /> CRAQUE DA PARTIDA</h4>
+                        <div className="p-3 rounded-lg bg-yellow-500/10 text-center border border-yellow-500/20">
+                            <Avatar className="mx-auto h-16 w-16 mb-2">
+                                <AvatarImage src={manOfTheMatch.avatarUrl} alt={manOfTheMatch.name} data-ai-hint="player photo" />
+                                <AvatarFallback>{manOfTheMatch.name.charAt(0)}</AvatarFallback>
+                            </Avatar>
+                            <p className="font-bold">{manOfTheMatch.name}</p>
+                            <p className="text-sm text-yellow-400 font-bold flex items-center justify-center gap-1">
+                                <Star size={14} className="fill-current" /> 
+                                {match.ratings?.[manOfTheMatch.id]?.average.toFixed(1)}
+                            </p>
+                        </div>
+                    </div>
+                )}
+            </CardContent>
+        </Card>
+    );
+
+    return (
+        <div className="space-y-6 animate-in fade-in-50">
+            <Card>
+                <CardHeader>
+                    <CardTitle className='flex items-center gap-2'><ClipboardList />Prancheta Tática</CardTitle>
+                    <CardDescription>Formação: {match.formation}</CardDescription>
+                </CardHeader>
+                <CardContent className="p-0 relative h-full min-h-[500px] aspect-[9/14]">
+                     <FieldView
+                        modality={match.modality}
+                        starters={starters}
+                        playerPositions={playerPositions}
+                        ballPosition={{ x: 50, y: 50 }}
+                        interactive={interactive}
+                        selectedPlayerId={null}
+                        onPlayerClick={() => {}}
+                        onPlayerDragStart={() => {}}
+                        onPlayerDragEnd={() => {}}
+                        onPlayerDrag={() => {}}
+                        draggingPlayerId={null}
+                        isDrawing={false}
+                    />
+                </CardContent>
+            </Card>
+
+            {match.status === 'past' && match.score && renderPastMatchInfo()}
+            
+            <Card>
+                <CardHeader>
+                    <CardTitle>Jogadores Convocados</CardTitle>
+                    <CardDescription>Titulares e reservas para a partida.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    {calledUpPlayers.length > 0 ? (
+                        <ScrollArea className="h-64 pr-3">
+                            <ul className="space-y-3">
+                                {calledUpPlayers.map(player => (
+                                    <li key={player.id} className="flex items-center gap-3 p-2 rounded-md bg-muted/50">
+                                        <Avatar>
+                                            <AvatarImage src={player.avatarUrl} alt={player.name} data-ai-hint="player photo" />
+                                            <AvatarFallback>{player.name.charAt(0)}</AvatarFallback>
+                                        </Avatar>
+                                        <div className="flex-grow">
+                                            <span className="font-medium">{player.name}</span>
+                                            <Badge variant="secondary" className="ml-2 text-xs">
+                                                {match.lineup[player.id]?.status === 'starter' ? 'Titular' : 'Reserva'}
+                                            </Badge>
+                                        </div>
+                                        <Badge variant="outline" className={cn(positionColors[player.position])}>
+                                            {player.position}
+                                        </Badge>
+                                    </li>
+                                ))}
+                            </ul>
+                        </ScrollArea>
+                    ) : (
+                        <p className="text-muted-foreground text-sm text-center py-4">Nenhum jogador escalado para esta partida.</p>
+                    )}
+                </CardContent>
+            </Card>
+        </div>
+    );
+}

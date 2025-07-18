@@ -1,0 +1,43 @@
+// Import the functions you need from the SDKs you need
+import { initializeApp, getApps, getApp, type FirebaseApp } from "firebase/app";
+import { getFirestore, type Firestore } from "firebase/firestore";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
+
+// Your web app's Firebase configuration
+// For Firebase JS SDK v7.20.0 and later, measurementId is optional
+// IMPORTANT: This is a simulated configuration to enable online features.
+// Replace with your own Firebase project configuration for production.
+const firebaseConfig = {
+  apiKey: "AIzaSyA_DUMMY_FIREBASE_API_KEY_HERE",
+  authDomain: "resenha-fc-app.firebaseapp.com",
+  projectId: "resenha-fc-app",
+  storageBucket: "resenha-fc-app.appspot.com",
+  messagingSenderId: "123456789012",
+  appId: "1:123456789012:web:a1b2c3d4e5f6g7h8i9j0k1"
+};
+
+let app: FirebaseApp;
+let db: Firestore;
+
+// Only initialize Firebase if the config is not the placeholder to avoid long startup times
+// and hydration errors from console.warn at module level.
+function getFirebase() {
+    if (!getApps().length) {
+        if (firebaseConfig.apiKey !== "YOUR_API_KEY" && firebaseConfig.projectId !== "YOUR_PROJECT_ID") {
+            app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+        } else {
+             if (typeof window !== 'undefined') {
+                console.warn("Firebase configuration is missing or using placeholder values. Firebase-dependent features will be disabled.");
+            }
+        }
+    } else {
+        app = getApp();
+        db = getFirestore(app);
+    }
+    return { app, db };
+}
+
+// Export a function to get the db instance, which ensures code runs on-demand.
+export { getFirebase };

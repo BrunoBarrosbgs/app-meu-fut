@@ -1,0 +1,98 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import type { Player } from '@/lib/types';
+
+export interface AuthInfo {
+  id: string | null;
+  name: string | null;
+  role: 'admin' | 'player' | null;
+  teamId: string | null;
+}
+
+// Default passwords for first-time access
+const DEFAULT_DIRECTOR_PASSWORD = 'Foco';
+const DEFAULT_PLAYER_PASSWORD = 'Disciplina';
+
+const AUTH_STORAGE_KEY = 'meu_fut_auth';
+const ACTIVE_TEAM_ID_KEY = 'meu_fut_active_team_id';
+
+
+interface LoginPayload {
+    role: 'admin' | 'player';
+    password?: string;
+    player?: Player;
+}
+
+export function useAuth() {
+  const [auth, setAuth] = useState<AuthInfo>({ id: null, name: null, role: null, teamId: null });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    try {
+        const storedAuth = localStorage.getItem(AUTH_STORAGE_KEY);
+        const storedTeamId = localStorage.getItem(ACTIVE_TEAM_ID_KEY);
+        if (storedAuth && storedTeamId) {
+            const parsedAuth = JSON.parse(storedAuth);
+            // Ensure the auth object is associated with the active team
+            if (parsedAuth.teamId === storedTeamId) {
+                setAuth(parsedAuth);
+            } else {
+                // If team ID mismatch, clear stale auth data
+                logout();
+            }
+        }
+    } catch (error) {
+        console.error("Failed to parse auth from localStorage", error);
+        localStorage.removeItem(AUTH_STORAGE_KEY);
+    } finally {
+        setLoading(false);
+    }
+  }, []);
+
+  const login = (payload: LoginPayload): { success: boolean; role?: 'admin' | 'player'; name?: string } => {
+    const { role, password, player } = payload;
+    const teamId = localStorage.getItem(ACTIVE_TEAM_ID_KEY);
+
+    if (!teamId) {
+        console.error("Login attempt without an active team ID.");
+        return { success: false };
+    }
+    
+    if (role === 'admin') {
+        const directorPasswordKey = `${teamId}_director_password`;
+        const storedDirectorPassword = localStorage.getItem(directorPasswordKey) || DEFAULT_DIRECTOR_PASSWORD;
+        if (password === storedDirectorPassword) {
+            const authInfo: AuthInfo = { id: 'admin_01', name: 'Diretor', role: 'admin', teamId };
+            localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(authInfo));
+            setAuth(authInfo);
+            return { success: true, role: 'admin', name: authInfo.name! };
+        }
+    }
+    
+    if (role === 'player' && player && password) {
+        const playerPasswordKey = `${teamId}_player_password`;
+        const storedPlayerPassword = localStorage.getItem(playerPasswordKey) || DEFAULT_PLAYER_PASSWORD;
+        if (password === storedPlayerPassword) {
+            const authInfo: AuthInfo = { id: player.id.toString(), name: player.name, role: 'player', teamId };
+            localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(authInfo));
+            setAuth(authInfo);
+            return { success: true, role: 'player', name: authInfo.name! };
+        }
+    }
+
+    return { success: false };
+  };
+
+  const logout = () => {
+    localStorage.removeItem(AUTH_STORAGE_KEY);
+    setAuth({ id: null, name: null, role: null, teamId: null });
+    // For consistency, redirect to login after logout
+    if (typeof window !== 'undefined') {
+        // We don't remove the ACTIVE_TEAM_ID_KEY on logout, only on "Trocar de time"
+        window.location.href = '/login';
+    }
+  };
+
+  return { auth, loading, login, logout };
+}

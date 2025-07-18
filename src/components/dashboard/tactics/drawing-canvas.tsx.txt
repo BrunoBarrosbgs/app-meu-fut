@@ -1,0 +1,129 @@
+
+'use client';
+
+import { useRef, useEffect, forwardRef, useImperativeHandle, useState } from 'react';
+import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { Trash2, Eraser, Pen } from 'lucide-react';
+
+type DrawingMode = 'draw' | 'erase';
+
+export interface DrawingCanvasRef {
+  clearCanvas: () => void;
+  setMode: (mode: DrawingMode) => void;
+  setColor: (color: string) => void;
+}
+
+export const DrawingCanvas = forwardRef<DrawingCanvasRef>((props, ref) => {
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const contextRef = useRef<CanvasRenderingContext2D | null>(null);
+    const [isDrawing, setIsDrawing] = useState(false);
+    
+    // Default to draw mode, color can be set by controls
+    const [mode, setMode] = useState<DrawingMode>('draw');
+    const [color, setColor] = useState('#00ff87'); // Neon Green
+
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        const resizeCanvas = () => {
+            const { offsetWidth, offsetHeight } = canvas.parentElement || document.body;
+            if (canvas.width !== offsetWidth || canvas.height !== offsetHeight) {
+                canvas.width = offsetWidth;
+                canvas.height = offsetHeight;
+                const context = canvas.getContext('2d');
+                if (context) {
+                    context.lineCap = 'round';
+                    context.strokeStyle = color;
+                    context.lineWidth = 4;
+                    contextRef.current = context;
+                }
+            }
+        };
+
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+        return () => window.removeEventListener('resize', resizeCanvas);
+    }, []);
+    
+    useEffect(() => {
+        if(contextRef.current) {
+            contextRef.current.strokeStyle = color;
+        }
+    }, [color]);
+
+    const startDrawing = ({ nativeEvent }: React.MouseEvent | React.TouchEvent) => {
+        const { offsetX, offsetY } = getCoords(nativeEvent);
+        contextRef.current?.beginPath();
+        contextRef.current?.moveTo(offsetX, offsetY);
+        setIsDrawing(true);
+    };
+
+    const finishDrawing = () => {
+        contextRef.current?.closePath();
+        setIsDrawing(false);
+    };
+
+    const draw = ({ nativeEvent }: React.MouseEvent | React.TouchEvent) => {
+        if (!isDrawing) return;
+        const { offsetX, offsetY } = getCoords(nativeEvent);
+        if (mode === 'draw') {
+            contextRef.current!.globalCompositeOperation = 'source-over';
+            contextRef.current!.lineWidth = 4;
+            contextRef.current!.strokeStyle = color;
+        } else { // erase
+            contextRef.current!.globalCompositeOperation = 'destination-out';
+            contextRef.current!.lineWidth = 20;
+        }
+        contextRef.current?.lineTo(offsetX, offsetY);
+        contextRef.current?.stroke();
+    };
+    
+    const getCoords = (event: MouseEvent | Touch) => {
+        if (canvasRef.current) {
+            const rect = canvasRef.current.getBoundingClientRect();
+            return {
+                offsetX: event.clientX - rect.left,
+                offsetY: event.clientY - rect.top,
+            };
+        }
+        return { offsetX: 0, offsetY: 0 };
+    };
+    
+    const handleTouchEvent = (handler: (event: TouchEvent) => void) => (event: React.TouchEvent) => {
+        event.preventDefault(); // prevent scrolling
+        handler(event.nativeEvent);
+    };
+    
+    useImperativeHandle(ref, () => ({
+        clearCanvas() {
+            const canvas = canvasRef.current;
+            const context = contextRef.current;
+            if (canvas && context) {
+                context.clearRect(0, 0, canvas.width, canvas.height);
+            }
+        },
+        setMode(newMode) {
+            setMode(newMode);
+        },
+        setColor(newColor) {
+            setColor(newColor);
+        }
+    }));
+
+    return (
+        <canvas
+            ref={canvasRef}
+            onMouseDown={startDrawing}
+            onMouseUp={finishDrawing}
+            onMouseMove={draw}
+            onTouchStart={handleTouchEvent(e => startDrawing({ nativeEvent: e.touches[0] } as any))}
+            onTouchEnd={handleTouchEvent(() => finishDrawing())}
+            onTouchMove={handleTouchEvent(e => draw({ nativeEvent: e.touches[0] } as any))}
+            className="absolute inset-0 w-full h-full z-20"
+        />
+    );
+});
+
+DrawingCanvas.displayName = 'DrawingCanvas';

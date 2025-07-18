@@ -1,0 +1,423 @@
+
+'use client';
+
+import type { Match, MatchModality, Player, MatchLineup, Championship } from "@/lib/types";
+import Link from "next/link";
+import { Header } from "@/components/dashboard/header";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Calendar, Clock, MapPin, PlusCircle, Users, Hourglass, ClipboardList, Dumbbell, Swords, Trophy, CheckCircle, DollarSign } from "lucide-react";
+import { useState, useEffect, useMemo } from "react";
+import { TacticalAnalysis } from "./tactical-analysis";
+import { useToast } from "@/hooks/use-toast";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
+import { matches as allMatches, championships as initialChampionships } from "@/lib/mock-data";
+import { getFirebase } from "@/lib/firebase";
+import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+import { PostMatchDetails } from "./post-match-details";
+import { useAuth } from "@/hooks/use-auth";
+import { ProgressDialog } from "@/components/ui/progress-dialog";
+import { cn } from "@/lib/utils";
+import { EventCountdown } from "./event-countdown";
+
+
+interface MatchesClientProps {
+    upcomingMatches: Match[];
+    pastMatches: Match[];
+    players: Player[];
+}
+
+const formationsByModality: Record<MatchModality, string[]> = {
+    'Campo': ['4-4-2', '4-3-3', '3-5-2', '4-2-3-1'],
+    'Society': ['2-3-1', '3-2-1', '2-2-2'],
+    'Futsal': ['2-2', '3-1', '1-2-1'],
+};
+
+const createDefaultLineup = (allPlayers: Player[]): MatchLineup => {
+    return allPlayers.reduce((acc, player) => {
+        acc[player.id] = { status: 'unselected', position: player.position };
+        return acc;
+    }, {} as MatchLineup);
+};
+
+
+export function MatchesClient({ upcomingMatches, pastMatches: initialPastMatches, players }: MatchesClientProps) {
+    const [isCreateDialogOpen, setCreateDialogOpen] = useState(false);
+    const [isProgressDialogOpen, setProgressDialogOpen] = useState(false);
+    const [currentUpcomingMatches, setCurrentUpcomingMatches] = useState<Match[]>(upcomingMatches);
+    const [currentPastMatches, setCurrentPastMatches] = useState<Match[]>(initialPastMatches);
+    const [championships, setChampionships] = useState<Championship[]>([]);
+    const [selectedMatch, setSelectedMatch] = useState<Match | null>(null);
+    const [teamName, setTeamName] = useState('Meu Fut');
+
+    const [newMatch, setNewMatch] = useState<{
+        type: 'match' | 'training',
+        opponent: string,
+        date: string,
+        time: string,
+        location: string,
+        duration: string,
+        modality: MatchModality,
+        championshipId?: string,
+        betAmount?: string,
+    }>({
+        type: 'match',
+        opponent: '',
+        date: '',
+        time: '',
+        location: '',
+        duration: '',
+        modality: 'Campo' as MatchModality,
+        betAmount: '',
+    });
+    const { toast } = useToast();
+    const { auth } = useAuth();
+    const championshipsMap = useMemo(() => new Map(championships.map(c => [c.id, c.name])), [championships]);
+
+    const updateMatchesAndChamps = () => {
+        setCurrentUpcomingMatches([...allMatches.filter(m => m.status === 'upcoming')]);
+        setCurrentPastMatches([...allMatches.filter(m => m.status === 'past')]);
+        
+        try {
+            const storedChampionships = localStorage.getItem('resenha_fc_championships');
+            setChampionships(storedChampionships ? JSON.parse(storedChampionships) : initialChampionships);
+        } catch (e) {
+            console.error(e);
+            setChampionships(initialChampionships);
+        }
+
+        const storedTeamName = localStorage.getItem(`${auth.teamId}_teamName`);
+        if(storedTeamName) setTeamName(storedTeamName);
+    };
+
+    useEffect(() => {
+        updateMatchesAndChamps();
+        window.addEventListener('matchesUpdated', updateMatchesAndChamps);
+        window.addEventListener('teamDataUpdated', updateMatchesAndChamps);
+        return () => {
+          window.removeEventListener('matchesUpdated', updateMatchesAndChamps);
+          window.removeEventListener('teamDataUpdated', updateMatchesAndChamps);
+        }
+    }, [auth.teamId]);
+
+    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const { id, value } = e.target;
+        setNewMatch(prev => ({ ...prev, [id]: value }));
+    };
+    
+    const handleSelectChange = (field: keyof typeof newMatch) => (value: string) => {
+        setNewMatch(prev => ({ ...prev, [field]: value }));
+    };
+
+    const handleEventTypeChange = (value: 'match' | 'training') => {
+        setNewMatch(prev => ({ 
+            ...prev, 
+            type: value,
+            opponent: value === 'training' ? 'Treino Coletivo' : '',
+            betAmount: value === 'training' ? '0' : prev.betAmount
+        }));
+    };
+
+    const notifyPlayersOfNewMatch = async (match: Match) => {
+        const { db } = getFirebase();
+        if (!db) {
+            console.warn("Firebase Desconectado, notificações não serão enviadas.");
+            return;
+        }
+
+        const message = match.type === 'training' 
+            ? `Novo treino coletivo agendado!`
+            : `Nova partida contra ${match.opponent} agendada!`;
+
+        for (const player of players) {
+            const notification = {
+                type: 'new_match',
+                message: message,
+                recipientId: player.id,
+                matchId: match.id,
+                isRead: false,
+                timestamp: serverTimestamp(),
+            };
+            try {
+                await addDoc(collection(db, 'notifications'), notification);
+            } catch (error) {
+                console.error(`Failed to create notification for player ${player.id}`, error);
+            }
+        }
+    };
+
+    const handleCreateMatch = async () => {
+        if (!newMatch.opponent || !newMatch.date || !newMatch.time || !newMatch.location || !newMatch.modality) {
+            toast({
+                variant: "destructive",
+                title: "Erro de Validação",
+                description: "Por favor, preencha todos os campos obrigatórios.",
+            });
+            return;
+        }
+
+        const createdMatch: Match = {
+            id: Date.now(),
+            type: newMatch.type,
+            opponent: newMatch.opponent,
+            date: newMatch.date,
+            time: newMatch.time,
+            location: newMatch.location,
+            status: 'upcoming',
+            confirmedPlayers: [],
+            duration: newMatch.duration ? parseInt(newMatch.duration, 10) : undefined,
+            modality: newMatch.modality,
+            formation: formationsByModality[newMatch.modality][0],
+            lineup: createDefaultLineup(players),
+            bettingOpen: newMatch.type === 'match' && !!newMatch.betAmount && parseFloat(newMatch.betAmount) > 0,
+            betAmount: newMatch.betAmount ? parseFloat(newMatch.betAmount) : undefined,
+            championshipId: newMatch.championshipId && newMatch.championshipId !== 'none' ? parseInt(newMatch.championshipId, 10) : undefined,
+        };
+
+        allMatches.push(createdMatch);
+        window.dispatchEvent(new Event('matchesUpdated'));
+        setCreateDialogOpen(false);
+        setProgressDialogOpen(true); // Open progress dialog on success
+
+        await notifyPlayersOfNewMatch(createdMatch);
+        
+        // Reset form after everything is done
+        resetCreateForm();
+    };
+
+    const resetCreateForm = () => {
+        const defaultBetAmount = auth.teamId ? localStorage.getItem(`${auth.teamId}_defaultBetAmount`) || '10' : '10';
+        setNewMatch({
+            type: 'match',
+            opponent: '',
+            date: '',
+            time: '',
+            location: '',
+            duration: '',
+            modality: 'Campo',
+            championshipId: undefined,
+            betAmount: defaultBetAmount,
+        });
+    }
+
+    const openCreateDialog = () => {
+        resetCreateForm();
+        setCreateDialogOpen(true);
+    }
+
+
+    return (
+        <div>
+             <ProgressDialog
+                isOpen={isProgressDialogOpen}
+                onOpenChange={setProgressDialogOpen}
+                title="Evento Criado"
+                description="O novo evento foi registrado e os jogadores serão notificados."
+                duration={2000}
+                icon={<CheckCircle className="h-16 w-16 text-primary" />}
+            />
+            <div className="flex items-center justify-between">
+                <Header title="Gerenciar Eventos" pageContext="matches" />
+                <Dialog open={isCreateDialogOpen} onOpenChange={setCreateDialogOpen}>
+                    <DialogTrigger asChild>
+                        <Button className="gap-2" onClick={openCreateDialog}>
+                            <PlusCircle size={18} />
+                            Novo Evento
+                        </Button>
+                    </DialogTrigger>
+                    <DialogContent onPointerDownOutside={(e) => e.preventDefault()}>
+                        <DialogHeader>
+                            <DialogTitle>Criar Novo Evento</DialogTitle>
+                        </DialogHeader>
+                        <div className="grid gap-4 py-4 max-h-[70vh] overflow-y-auto pr-2">
+                            <div className="grid gap-2">
+                                <Label htmlFor="type">Tipo de Evento</Label>
+                                <Select value={newMatch.type} onValueChange={handleEventTypeChange}>
+                                    <SelectTrigger id="type">
+                                        <SelectValue placeholder="Selecione o tipo" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="match">Partida</SelectItem>
+                                        <SelectItem value="training">Treino</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                             <div className="grid gap-2">
+                                <Label htmlFor="championshipId">Campeonato (Opcional)</Label>
+                                <Select value={newMatch.championshipId} onValueChange={handleSelectChange('championshipId')}>
+                                    <SelectTrigger id="championshipId">
+                                        <SelectValue placeholder="Nenhum (Amistoso)" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="none">Nenhum (Amistoso)</SelectItem>
+                                        {championships.map(c => (
+                                            <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="grid gap-2">
+                                <Label htmlFor="opponent">Adversário / Título do Treino</Label>
+                                <Input id="opponent" placeholder={newMatch.type === 'training' ? "Ex: Treino de Finalização" : "Nome do time adversário"} value={newMatch.opponent} onChange={handleInputChange} />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="grid gap-2">
+                                    <Label htmlFor="date">Data</Label>
+                                    <Input id="date" type="date" value={newMatch.date} onChange={handleInputChange} />
+                                </div>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="time">Horário</Label>
+                                    <Input id="time" type="time" value={newMatch.time} onChange={handleInputChange} />
+                                </div>
+                            </div>
+                            <div className="grid gap-2">
+                                <Label htmlFor="location">Local</Label>
+                                <Input id="location" placeholder="Ex: CT Meu Fut" value={newMatch.location} onChange={handleInputChange} />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="grid gap-2">
+                                    <Label htmlFor="duration">Duração (minutos)</Label>
+                                    <Input id="duration" type="number" placeholder="Ex: 90" value={newMatch.duration} onChange={handleInputChange} />
+                                </div>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="modality">Modalidade</Label>
+                                    <Select value={newMatch.modality} onValueChange={(v) => handleSelectChange('modality')(v as MatchModality)}>
+                                        <SelectTrigger id="modality">
+                                            <SelectValue placeholder="Selecione a modalidade" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="Campo">Campo</SelectItem>
+                                            <SelectItem value="Society">Society</SelectItem>
+                                            <SelectItem value="Futsal">Futsal</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            </div>
+                            {newMatch.type === 'match' && (
+                                <div className="grid gap-2">
+                                    <Label htmlFor="betAmount">Valor da Aposta (R$)</Label>
+                                    <Input id="betAmount" type="number" placeholder="Ex: 10.00 (deixe em branco para desativar)" value={newMatch.betAmount} onChange={handleInputChange} />
+                                </div>
+                            )}
+                        </div>
+                        <Button onClick={handleCreateMatch}>Criar Evento</Button>
+                    </DialogContent>
+                </Dialog>
+            </div>
+            
+            <Dialog open={!!selectedMatch} onOpenChange={(isOpen) => !isOpen && setSelectedMatch(null)}>
+                <DialogContent className="max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Detalhes da Partida</DialogTitle>
+                    </DialogHeader>
+                    {selectedMatch && <PostMatchDetails match={selectedMatch} players={players} onUpdate={updateMatchesAndChamps} onClose={() => setSelectedMatch(null)} teamName={teamName} />}
+                </DialogContent>
+            </Dialog>
+
+            <section>
+                <h2 className="font-headline text-2xl text-glow mb-4">Próximos Eventos</h2>
+                <div className="grid gap-4 md:grid-cols-2">
+                    {currentUpcomingMatches.length > 0 ? currentUpcomingMatches.map(match => (
+                        <Card key={match.id} className="flex flex-col">
+                            <div className="flex-grow">
+                                <CardHeader>
+                                    <div className="flex justify-between items-start">
+                                        <div>
+                                            <CardTitle className="font-headline text-primary flex items-center gap-2">
+                                                {match.type === 'training' ? <Dumbbell /> : <Swords />}
+                                                {match.type === 'training' ? match.opponent : `${teamName} vs ${match.opponent}`}
+                                            </CardTitle>
+                                             <CardDescription>
+                                                <span className="flex items-center gap-1.5"><MapPin size={14} /> {match.location}</span>
+                                            </CardDescription>
+                                        </div>
+                                        {match.modality && <Badge variant="secondary">{match.modality}</Badge>}
+                                    </div>
+                                     <div className="flex flex-wrap items-center gap-2 mt-2">
+                                        {match.championshipId && (
+                                            <Badge variant="outline" className="text-yellow-400 border-yellow-500/50 flex items-center gap-1.5 w-fit">
+                                                <Trophy size={12}/> {championshipsMap.get(match.championshipId) || 'Campeonato'}
+                                            </Badge>
+                                        )}
+                                        {match.bettingOpen && match.betAmount && (
+                                             <Badge variant="outline" className="text-green-400 border-green-500/50 flex items-center gap-1.5 w-fit">
+                                                <DollarSign size={12}/> Aposta: R$ {match.betAmount.toFixed(2)}
+                                            </Badge>
+                                        )}
+                                    </div>
+                                </CardHeader>
+                                <CardContent>
+                                    <EventCountdown match={match} className="mb-4"/>
+                                    <p className="flex items-center gap-1.5 text-sm mt-2"><Users size={14} /> {match.confirmedPlayers.length} / {players.length} jogadores confirmados</p>
+                                </CardContent>
+                            </div>
+                            <CardFooter className="flex-wrap gap-2">
+                                {match.type === 'match' && (
+                                    <TacticalAnalysis match={match} players={players} />
+                                )}
+                                <Button asChild variant="secondary" className="gap-2">
+                                    <Link href={`/dashboard/tactics?matchId=${match.id}`}>
+                                        <ClipboardList size={16} />
+                                        Prancheta Tática
+                                    </Link>
+                                </Button>
+                            </CardFooter>
+                        </Card>
+                    )) : (
+                        <p className="text-muted-foreground">Nenhum evento agendado.</p>
+                    )}
+                </div>
+            </section>
+
+             <section className="mt-8">
+                <h2 className="font-headline text-2xl text-glow mb-4">Eventos Anteriores</h2>
+                 <div className="grid gap-4 md:grid-cols-2">
+                    {currentPastMatches.map(match => (
+                        <Card key={match.id} className="flex flex-col border-muted/20">
+                            <div className="flex-grow">
+                                <CardHeader>
+                                    <div className="flex justify-between items-start">
+                                        <div>
+                                            <CardTitle className="font-headline text-muted-foreground flex items-center gap-2">
+                                                {match.type === 'training' ? <Dumbbell /> : <Swords />}
+                                                {match.type === 'training' ? match.opponent : `${teamName} vs ${match.opponent}`}
+                                            </CardTitle>
+                                            <CardDescription>{new Date(match.date).toLocaleDateString('pt-BR',{timeZone: 'UTC'})}</CardDescription>
+                                        </div>
+                                        <div className="flex flex-col items-end gap-2">
+                                            {match.modality && <Badge variant="outline">{match.modality}</Badge>}
+                                            {match.championshipId && (
+                                                <Badge variant="outline" className="text-yellow-400 border-yellow-500/50 flex items-center gap-1.5 w-fit">
+                                                    <Trophy size={12}/> {championshipsMap.get(match.championshipId) || 'Campeonato'}
+                                                </Badge>
+                                            )}
+                                        </div>
+                                    </div>
+                                </CardHeader>
+                                <CardContent>
+                                    {match.type === 'match' && match.score ? (
+                                        <p className="text-3xl font-bold font-headline">{match.score}</p>
+                                    ) : (
+                                        <p className="text-sm text-muted-foreground">{match.type === 'match' ? 'Aguardando resultado...' : 'Treino finalizado'}</p>
+                                    )}
+                                </CardContent>
+                            </div>
+                             {match.type === 'match' && (
+                                <CardFooter>
+                                    <Button variant="secondary" className="w-full gap-2" onClick={() => setSelectedMatch(match)}>
+                                        <Trophy size={16} />
+                                        {match.score ? 'Ver Detalhes e Avaliações' : 'Registrar Resultado'}
+                                    </Button>
+                                </CardFooter>
+                             )}
+                        </Card>
+                    ))}
+                </div>
+            </section>
+        </div>
+    );
+}

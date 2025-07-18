@@ -1,0 +1,215 @@
+
+'use client';
+
+import type { Player } from "@/lib/types";
+import { useState, useEffect, useMemo } from "react";
+import { useToast } from "@/hooks/use-toast";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { GoalArea } from "./goal-area";
+import { RankingCard } from "./ranking-card";
+import { Play } from "lucide-react";
+
+const SHOTS_PER_ROUND = 5;
+const PENALTY_SCORES_KEY = 'penaltyGameScores';
+
+// Helper function to get the keeper's dive zone based on the shot
+function getKeeperDiveZone(shotZone: number): number {
+  // 90% chance for the keeper to dive to the correct zone (a save)
+  if (Math.random() < 0.9) {
+    return shotZone;
+  }
+
+  // 10% chance for the keeper to dive to a random wrong zone (a goal)
+  let diveZone;
+  do {
+    // Choose any of the 9 zones
+    diveZone = Math.floor(Math.random() * 9);
+  } while (diveZone === shotZone); // Ensure it's a different zone
+  return diveZone;
+}
+
+interface PenaltyGameClientProps {
+    allPlayers: Player[];
+}
+
+export default function PenaltyGameClient({ allPlayers }: PenaltyGameClientProps) {
+    const { toast } = useToast();
+    const [players, setPlayers] = useState<Player[]>(allPlayers);
+    const [selectedPlayerId, setSelectedPlayerId] = useState<string | undefined>(undefined);
+    const [gameState, setGameState] = useState<'idle' | 'playing' | 'finished'>('idle');
+    const [score, setScore] = useState(0);
+    const [shotsLeft, setShotsLeft] = useState(SHOTS_PER_ROUND);
+    const [shotResult, setShotResult] = useState<{ zoneIndex: number | null; isGoal: boolean; keeperZone: number; isMiss: boolean; power: number; } | null>(null);
+    const [isShooting, setIsShooting] = useState(false);
+
+    useEffect(() => {
+        try {
+            const storedScores = localStorage.getItem(PENALTY_SCORES_KEY);
+            if (storedScores) {
+                const scores = JSON.parse(storedScores) as Record<string, number>;
+                const updatedPlayers = allPlayers.map(p => ({
+                    ...p,
+                    penaltyGoals: scores[p.id] || 0
+                }));
+                setPlayers(updatedPlayers);
+            }
+        } catch (error) {
+            console.error("Failed to load penalty scores from localStorage", error);
+        }
+    }, [allPlayers]);
+
+    const rankedPlayers = useMemo(() => {
+        return [...players].sort((a, b) => (b.penaltyGoals || 0) - (a.penaltyGoals || 0));
+    }, [players]);
+
+    const selectedPlayer = useMemo(() => {
+        return players.find(p => p.id.toString() === selectedPlayerId);
+    }, [selectedPlayerId, players]);
+
+    const handleStartGame = () => {
+        if (!selectedPlayerId) {
+            toast({ variant: 'destructive', title: 'Selecione um jogador!' });
+            return;
+        }
+        setGameState('playing');
+        setScore(0);
+        setShotsLeft(SHOTS_PER_ROUND);
+        setShotResult(null);
+    };
+
+    const handlePlayAgain = () => {
+        setGameState('idle');
+        setSelectedPlayerId(undefined);
+    };
+
+    const handleShoot = ({ zoneIndex, power }: { zoneIndex: number; power: number }) => {
+        if (isShooting || gameState !== 'playing' || shotsLeft === 0) return;
+        setIsShooting(true);
+
+        const keeperZone = getKeeperDiveZone(zoneIndex);
+        // A shot is a miss if the power is too high
+        const isMiss = power > 95;
+        // A goal occurs if it's not a miss and the player doesn't shoot where the keeper dives
+        const isGoal = !isMiss && zoneIndex !== keeperZone;
+
+        const result = { zoneIndex, isGoal, keeperZone, isMiss, power };
+        setShotResult(result);
+
+        setTimeout(() => {
+            if (result.isGoal) {
+                setScore(s => s + 1);
+            }
+            const newShotsLeft = shotsLeft - 1;
+            setShotsLeft(newShotsLeft);
+            
+            if (newShotsLeft === 0) {
+                const finalScore = result.isGoal ? score + 1 : score;
+                setGameState('finished');
+                updatePlayerScore(finalScore);
+            }
+
+            setShotResult(null); // Reset for the next shot animation
+            setIsShooting(false);
+        }, 1500);
+    };
+
+    const updatePlayerScore = (roundScore: number) => {
+        if (!selectedPlayerId) return;
+
+        const updatedPlayers = players.map(p => {
+            if (p.id.toString() === selectedPlayerId) {
+                const newTotal = (p.penaltyGoals || 0) + roundScore;
+                return { ...p, penaltyGoals: newTotal };
+            }
+            return p;
+        });
+        setPlayers(updatedPlayers);
+
+        try {
+            const scoresToStore = updatedPlayers.reduce((acc, p) => {
+                acc[p.id] = p.penaltyGoals || 0;
+                return acc;
+            }, {} as Record<string, number>);
+            localStorage.setItem(PENALTY_SCORES_KEY, JSON.stringify(scoresToStore));
+        } catch (error) {
+            console.error("Failed to save penalty scores to localStorage", error);
+        }
+    };
+    
+
+    return (
+        <div className="grid lg:grid-cols-3 gap-8 items-start">
+            <div className="lg:col-span-2">
+                <Card className="min-h-[500px] overflow-hidden">
+                    <CardHeader>
+                        <CardTitle>Área de Pênaltis</CardTitle>
+                        <CardDescription>
+                            {gameState === 'idle' && 'Escolha um jogador e comece a partida.'}
+                            {gameState === 'playing' && `Chutador: ${selectedPlayer?.name}`}
+                            {gameState === 'finished' && 'Partida finalizada!'}
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent className="flex flex-col items-center justify-center h-full">
+                        {gameState === 'idle' && (
+                            <div className="flex flex-col items-center gap-4">
+                                <div className="w-full max-w-xs">
+                                    <Label htmlFor="player-select">Escolha o Chutador</Label>
+                                    <Select onValueChange={setSelectedPlayerId} value={selectedPlayerId}>
+                                        <SelectTrigger id="player-select">
+                                            <SelectValue placeholder="Selecione..." />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {allPlayers.map(p => (
+                                                <SelectItem key={p.id} value={p.id.toString()}>
+                                                    {p.name}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <Button onClick={handleStartGame} disabled={!selectedPlayerId} className="gap-2">
+                                    <Play /> Iniciar Jogo
+                                </Button>
+                            </div>
+                        )}
+
+                        {(gameState === 'playing' || gameState === 'finished') && selectedPlayer && (
+                            <div className="w-full">
+                                <div className="flex justify-around items-center mb-4 text-center px-4">
+                                    <div>
+                                        <p className="text-muted-foreground">Bolas Restantes</p>
+                                        <p className="font-headline text-4xl text-glow">{shotsLeft}</p>
+                                    </div>
+                                    <Avatar className="w-20 h-20 border-4 border-primary">
+                                        <AvatarImage src={selectedPlayer.avatarUrl} data-ai-hint="player photo" />
+                                        <AvatarFallback>{selectedPlayer.name.charAt(0)}</AvatarFallback>
+                                    </Avatar>
+                                    <div>
+                                        <p className="text-muted-foreground">Gols</p>
+                                        <p className="font-headline text-4xl text-glow">{score}</p>
+                                    </div>
+                                </div>
+                                <GoalArea onShoot={handleShoot} disabled={isShooting || gameState === 'finished'} shotResult={shotResult} />
+                            </div>
+                        )}
+                        
+                        {gameState === 'finished' && (
+                            <div className="text-center mt-6 animate-in fade-in-50">
+                                <h3 className="text-2xl font-bold">Fim de jogo!</h3>
+                                <p className="text-lg">Você marcou <span className="text-primary font-bold">{score}</span> gols.</p>
+                                <Button onClick={handlePlayAgain} className="mt-4">Jogar Novamente</Button>
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+            </div>
+            <div className="lg:col-span-1">
+                <RankingCard rankedPlayers={rankedPlayers} />
+            </div>
+        </div>
+    )
+}

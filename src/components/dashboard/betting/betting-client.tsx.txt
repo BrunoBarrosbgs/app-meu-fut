@@ -1,0 +1,613 @@
+
+'use client';
+
+import type { Bet, Match, Player } from "@/lib/types";
+import { Header } from "@/components/dashboard/header";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Gem, Target, Info, ShieldAlert, Ticket, Monitor, User, Trophy, BarChart, Check, X, Award, Crown, HelpCircle, Users as UsersIcon } from "lucide-react";
+import { useAuth } from "@/hooks/use-auth";
+import { useEffect, useState, useMemo, memo } from "react";
+import { players as initialPlayers } from "@/lib/mock-data";
+import { useToast } from "@/hooks/use-toast";
+import { initialClubFinances, matches as allMatches } from "@/lib/mock-data";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { BettingRulesDialog } from "./BettingRulesDialog";
+import { Progress } from "@/components/ui/progress";
+
+
+interface BettingClientProps {
+  upcomingMatches: Match[];
+  players: Player[];
+}
+
+interface BetState {
+    scoreA: string;
+    scoreB: string;
+    topScorer: string;
+}
+
+const CLUB_CUT_PERCENTAGE = 0.10; // 10%
+
+const MatchBettingCard = memo(({ match, players, allRegisteredBets, onPlaceBet, teamName }: {
+  match: Match;
+  players: Player[];
+  allRegisteredBets: Bet[];
+  onPlaceBet: (type: 'score' | 'top_scorer', value: string | number) => void;
+  teamName: string;
+}) => {
+  const [betState, setBetState] = useState<BetState>({ scoreA: '0', scoreB: '0', topScorer: '' });
+  const [activeTab, setActiveTab] = useState<'score' | 'top_scorer'>('score');
+
+  const scalatedPlayers = useMemo(() => {
+    if (!match.lineup) return [];
+    return players.filter(player => {
+      const playerStatus = match.lineup[player.id]?.status;
+      return playerStatus === 'starter' || playerStatus === 'substitute';
+    });
+  }, [match.lineup, players]);
+  
+  const { totalBets, prizePool } = useMemo(() => {
+      const matchBets = allRegisteredBets.filter(b => b.matchId === match.id);
+      const totalAmount = matchBets.reduce((sum, bet) => sum + bet.amount, 0);
+      return {
+          totalBets: matchBets.length,
+          prizePool: totalAmount * (1 - CLUB_CUT_PERCENTAGE)
+      };
+  }, [allRegisteredBets, match.id]);
+
+  const handleBet = () => {
+    if (activeTab === 'score') {
+        const scoreValue = `${betState.scoreA || 0}x${betState.scoreB || 0}`;
+        onPlaceBet('score', scoreValue);
+    } else {
+        if(!betState.topScorer) return;
+        onPlaceBet('top_scorer', parseInt(betState.topScorer, 10));
+    }
+  };
+
+  if (!match.betAmount || match.betAmount <= 0) return null;
+
+  return (
+    <Card className="flex flex-col">
+      <CardHeader>
+        <CardTitle className="font-headline text-primary">{teamName} vs {match.opponent}</CardTitle>
+        <CardDescription>{new Date(match.date).toLocaleDateString('pt-BR', { timeZone: 'UTC' })} - {match.time}</CardDescription>
+      </CardHeader>
+      <CardContent className="flex-grow space-y-4">
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="score">Placar Exato</TabsTrigger>
+                <TabsTrigger value="top_scorer">Artilheiro</TabsTrigger>
+            </TabsList>
+            <TabsContent value="score" className="space-y-4 pt-4">
+                 <div>
+                    <Label htmlFor={`score-bet-${match.id}`} className="mb-2 block">Seu Palpite de Placar</Label>
+                    <div className="flex items-center gap-2">
+                        <Input
+                        type="number" min="0" className="w-16 text-center"
+                        value={betState.scoreA}
+                        onChange={(e) => setBetState(p => ({...p, scoreA: e.target.value}))}
+                        placeholder={teamName}
+                        />
+                        <span className="font-bold">x</span>
+                        <Input
+                        type="number" min="0" className="w-16 text-center"
+                        value={betState.scoreB}
+                        onChange={(e) => setBetState(p => ({...p, scoreB: e.target.value}))}
+                        placeholder={match.opponent}
+                        />
+                    </div>
+                </div>
+            </TabsContent>
+            <TabsContent value="top_scorer" className="space-y-4 pt-4">
+                <div>
+                    <Label htmlFor={`top-scorer-bet-${match.id}`} className="mb-2 block">Quem marcará pelo menos 1 gol?</Label>
+                    <Select
+                        value={betState.topScorer}
+                        onValueChange={(value) => setBetState(p => ({...p, topScorer: value}))}
+                    >
+                        <SelectTrigger id={`top-scorer-bet-${match.id}`}>
+                            <SelectValue placeholder="Selecione um jogador" />
+                        </SelectTrigger>
+                        <SelectContent>
+                        {scalatedPlayers.length > 0 ? (
+                            scalatedPlayers.map(p => (
+                            <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>
+                            ))
+                        ) : (
+                            <SelectItem value="no-players" disabled>Nenhum jogador escalado</SelectItem>
+                        )}
+                        </SelectContent>
+                    </Select>
+                </div>
+            </TabsContent>
+        </Tabs>
+      </CardContent>
+       <CardFooter className="flex-col items-stretch gap-4 pt-4 border-t">
+         <div className="space-y-2">
+            <div className="text-sm font-bold flex justify-between items-center">
+                <span>Prêmio Acumulado:</span>
+                <span className="text-primary font-mono">R$ {prizePool.toFixed(2)}</span>
+            </div>
+            <Progress value={(totalBets / players.length) * 100} />
+            <div className="text-xs text-muted-foreground flex justify-between">
+                <span>{totalBets} aposta(s) feita(s)</span>
+                <span>Valor por Aposta: R$ {match.betAmount.toFixed(2)}</span>
+            </div>
+        </div>
+        <Button className="w-full gap-2" onClick={handleBet} disabled={(activeTab === 'top_scorer' && !betState.topScorer)}>
+          <Target size={16} />
+          Apostar em {activeTab === 'score' ? 'Placar' : 'Artilheiro'}
+        </Button>
+      </CardFooter>
+    </Card>
+  );
+});
+MatchBettingCard.displayName = "MatchBettingCard";
+
+const BettingArea = ({ user, teamName, players, upcomingMatches, allRegisteredBets, setAllRegisteredBets, setSquad, teamId }: { 
+    user: Player | null,
+    teamName: string,
+    players: Player[],
+    upcomingMatches: Match[],
+    allRegisteredBets: Bet[],
+    setAllRegisteredBets: React.Dispatch<React.SetStateAction<Bet[]>>,
+    setSquad: React.Dispatch<React.SetStateAction<Player[]>>,
+    teamId: string | null,
+}) => {
+    const { toast } = useToast();
+
+    const handlePlaceBet = (matchId: number, type: 'score' | 'top_scorer', value: string | number) => {
+        if (!user) {
+          toast({ variant: "destructive", title: "Erro", description: "Jogador não encontrado." });
+          return;
+        }
+        if (!teamId) {
+            toast({ variant: "destructive", title: "Erro", description: "ID do time não encontrado." });
+            return;
+        }
+        
+        const PLAYERS_STORAGE_KEY = `${teamId}_players`;
+        const BETS_STORAGE_KEY = `${teamId}_bets`;
+        const BALANCE_STORAGE_KEY = `${teamId}_clubBalance`;
+        const TRANSACTIONS_STORAGE_KEY = `${teamId}_clubTransactions`;
+
+        const match = upcomingMatches.find(m => m.id === matchId);
+        if (!match || !match.betAmount) {
+             toast({ variant: "destructive", title: "Erro", description: "Valor da aposta não definido para esta partida." });
+             return;
+        }
+
+        const amount = match.betAmount;
+
+        if (user.credits < amount) {
+          toast({ variant: "destructive", title: "Créditos Insuficientes", description: "Você não tem créditos suficientes para fazer esta aposta." });
+          return;
+        }
+        
+        if (type === 'top_scorer' && !value) {
+            toast({ variant: "destructive", title: "Aposta Incompleta", description: "Por favor, selecione um jogador." });
+            return;
+        }
+        
+        const existingBet = allRegisteredBets.find(b => b.userId === user.id && b.matchId === matchId && b.type === type);
+        if(existingBet) {
+             toast({ variant: "destructive", title: "Aposta já realizada", description: `Você já apostou em ${type === 'score' ? 'placar' : 'artilheiro'} para esta partida.` });
+            return;
+        }
+
+        const updatedSquad = players.map(p => p.id === user.id ? {...p, credits: p.credits - amount} : p);
+        setSquad(updatedSquad);
+        localStorage.setItem(PLAYERS_STORAGE_KEY, JSON.stringify(updatedSquad));
+        
+        const newBet: Bet = {
+            id: Date.now(),
+            matchId: matchId,
+            userId: user.id,
+            type: type,
+            betValue: value,
+            amount: amount,
+            status: 'pending'
+        };
+
+        const updatedBets = [...allRegisteredBets, newBet];
+        setAllRegisteredBets(updatedBets);
+        localStorage.setItem(BETS_STORAGE_KEY, JSON.stringify(updatedBets));
+
+        const clubCut = amount * CLUB_CUT_PERCENTAGE;
+        const currentBalance = parseFloat(localStorage.getItem(BALANCE_STORAGE_KEY) || initialClubFinances.balance.toString());
+        const newBalance = currentBalance + clubCut;
+        localStorage.setItem(BALANCE_STORAGE_KEY, newBalance.toString());
+        
+        const storedTransactions = localStorage.getItem(TRANSACTIONS_STORAGE_KEY);
+        const transactions = storedTransactions ? JSON.parse(storedTransactions) : [];
+        const newTransaction = {
+            id: Date.now() + 1,
+            type: 'bet_cut',
+            description: `Corte da aposta de ${user.name} na partida #${matchId}`,
+            amount: clubCut,
+            date: new Date().toISOString().split('T')[0],
+        };
+        transactions.unshift(newTransaction);
+        localStorage.setItem(TRANSACTIONS_STORAGE_KEY, JSON.stringify(transactions));
+        
+        window.dispatchEvent(new CustomEvent('teamDataUpdated', { detail: { teamId } }));
+
+        toast({
+          title: "Aposta Realizada!",
+          description: `Sua aposta de R$ ${amount.toFixed(2)} foi registrada. Boa sorte!`,
+        });
+    };
+
+    if (!user) {
+        return (
+            <Card className="text-center">
+                 <CardHeader>
+                    <ShieldAlert className="mx-auto h-12 w-12 text-destructive" />
+                    <CardTitle>Jogador Não Encontrado</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <p className="text-muted-foreground">Não foi possível carregar seus dados. Por favor, faça login novamente.</p>
+                </CardContent>
+            </Card>
+        );
+    }
+    
+    return (
+        <div>
+            <div className="mb-8">
+                <Card className="max-w-xs">
+                    <CardHeader className="pb-2">
+                        <CardTitle className="text-base text-muted-foreground">Sua Banca</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <p className="font-headline text-4xl text-glow flex items-center gap-2">
+                            <Gem className="h-8 w-8 text-primary" />
+                            {`R$ ${user.credits.toFixed(2)}`}
+                        </p>
+                    </CardContent>
+                </Card>
+            </div>
+            {upcomingMatches.filter(m => m.bettingOpen).length > 0 ? (
+                <div className="grid gap-6 md:grid-cols-2">
+                {upcomingMatches.filter(m => m.bettingOpen).map(match => (
+                    <MatchBettingCard 
+                        key={match.id}
+                        match={match}
+                        players={players}
+                        allRegisteredBets={allRegisteredBets}
+                        onPlaceBet={(type, value) => handlePlaceBet(match.id, type, value)}
+                        teamName={teamName}
+                    />
+                ))}
+                </div>
+            ) : (
+                <Card className="text-center">
+                    <CardHeader>
+                        <Ticket className="mx-auto h-12 w-12 text-muted-foreground" />
+                        <CardTitle>Nenhuma Aposta Aberta</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <p className="text-muted-foreground">No momento, não há partidas com apostas abertas. Fique de olho no calendário para os próximos jogos!</p>
+                    </CardContent>
+                </Card>
+            )}
+        </div>
+    )
+}
+
+const BettingMonitor = ({ allRegisteredBets, teamName, players }: { allRegisteredBets: Bet[], teamName: string, players: Player[] }) => {
+    return (
+        <Card>
+            <CardHeader>
+                <CardTitle>Monitor de Apostas</CardTitle>
+                <CardDescription>Acompanhe aqui todas as apostas realizadas para as próximas partidas.</CardDescription>
+            </CardHeader>
+            <CardContent>
+                <Table>
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead>Jogador</TableHead>
+                            <TableHead>Partida</TableHead>
+                            <TableHead>Tipo de Aposta</TableHead>
+                            <TableHead>Palpite</TableHead>
+                            <TableHead className="text-right">Valor</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {allRegisteredBets.length > 0 ? allRegisteredBets.filter(b => b.status === 'pending').map(bet => {
+                            const player = players.find(p => p.id === bet.userId);
+                            const match = allMatches.find(m => m.id === bet.matchId);
+                            const goalscorer = bet.type === 'top_scorer' ? players.find(p => p.id === Number(bet.betValue)) : null;
+                            return (
+                                <TableRow key={bet.id}>
+                                    <TableCell>
+                                        <div className="flex items-center gap-2">
+                                            <Avatar className="h-8 w-8"><AvatarImage src={player?.avatarUrl} /><AvatarFallback>{player?.name.charAt(0)}</AvatarFallback></Avatar>
+                                            {player?.name || 'Desconhecido'}
+                                        </div>
+                                    </TableCell>
+                                    <TableCell>{match ? `${teamName} vs ${match.opponent}` : 'Partida não encontrada'}</TableCell>
+                                    <TableCell>
+                                        <Badge variant={bet.type === 'score' ? 'default' : 'secondary'}>
+                                            {bet.type === 'score' && 'Placar'}
+                                            {bet.type === 'top_scorer' && 'Artilheiro'}
+                                        </Badge>
+                                    </TableCell>
+                                    <TableCell className="font-mono">
+                                        {bet.type === 'score' ? bet.betValue : goalscorer?.name || '-'}
+                                    </TableCell>
+                                    <TableCell className="text-right font-mono font-bold">R$ {bet.amount.toFixed(2)}</TableCell>
+                                </TableRow>
+                            )
+                        }) : (
+                            <TableRow>
+                                <TableCell colSpan={5} className="text-center h-24">Nenhuma aposta pendente registrada ainda.</TableCell>
+                            </TableRow>
+                        )}
+                    </TableBody>
+                </Table>
+            </CardContent>
+        </Card>
+    );
+}
+
+const ResultsAndRanking = ({ allRegisteredBets, teamName, players, matches }: {
+    allRegisteredBets: Bet[],
+    teamName: string,
+    players: Player[],
+    matches: Match[]
+}) => {
+    const pastMatchesWithBets = useMemo(() => {
+        return matches
+            .filter(m => m.status === 'past' && allRegisteredBets.some(b => b.matchId === m.id))
+            .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    }, [matches, allRegisteredBets]);
+
+    const getBetResult = (bet: Bet, match: Match) => {
+        if(bet.status === 'pending' || !match.score) return <span className="text-muted-foreground">Pendente</span>;
+        if(bet.status === 'won') return <span className="text-primary flex items-center gap-1"><Check size={14}/> Acertou</span>;
+        return <span className="text-destructive flex items-center gap-1"><X size={14}/> Errou</span>;
+    }
+
+    const hallOfFame = useMemo(() => {
+        return [...players].sort((a,b) => (b.totalWinnings || 0) - (a.totalWinnings || 0)).slice(0, 10);
+    }, [players]);
+
+    return (
+        <div className="grid lg:grid-cols-3 gap-8 items-start">
+            <div className="lg:col-span-2 space-y-6">
+                <h3 className="font-headline text-2xl text-glow">Resultados das Apostas</h3>
+                <ScrollArea className="h-[70vh]">
+                    <div className="space-y-6 pr-4">
+                        {pastMatchesWithBets.length > 0 ? pastMatchesWithBets.map(match => {
+                            const matchBets = allRegisteredBets.filter(b => b.matchId === match.id);
+                            const winners = matchBets.filter(b => b.status === 'won');
+                            const totalPrizePool = matchBets.reduce((acc, b) => acc + b.amount, 0) * (1 - CLUB_CUT_PERCENTAGE);
+                            return (
+                                <Card key={match.id}>
+                                    <CardHeader>
+                                        <CardTitle>{teamName} vs {match.opponent}</CardTitle>
+                                        <CardDescription>{new Date(match.date).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}</CardDescription>
+                                    </CardHeader>
+                                    <CardContent>
+                                        <div className="flex justify-between items-center bg-muted/50 p-3 rounded-lg">
+                                            <div>
+                                                <p className="text-sm text-muted-foreground">Placar Final</p>
+                                                <p className="font-headline text-2xl text-primary">{match.score}</p>
+                                            </div>
+                                            <div>
+                                                <p className="text-sm text-muted-foreground">Prêmio Distribuído</p>
+                                                <p className="font-headline text-2xl text-primary">R$ {totalPrizePool.toFixed(2)}</p>
+                                            </div>
+                                        </div>
+                                        
+                                        <div className="mt-4">
+                                            <h4 className="font-bold mb-2">Vencedores & Prêmios</h4>
+                                            {winners.length > 0 ? (
+                                                <div className="space-y-2">
+                                                    {winners.map(bet => {
+                                                        const player = players.find(p => p.id === bet.userId);
+                                                        const prizePerWinner = 
+                                                          bet.type === 'score' 
+                                                          ? (matchBets.filter(b => b.type === 'score').reduce((s, b) => s + b.amount, 0) * (1-CLUB_CUT_PERCENTAGE)) / (winners.filter(w => w.type === 'score').length || 1)
+                                                          : (matchBets.filter(b => b.type === 'top_scorer').reduce((s, b) => s + b.amount, 0) * (1-CLUB_CUT_PERCENTAGE)) / (winners.filter(w => w.type === 'top_scorer').length || 1);
+
+                                                        return (
+                                                             <div key={bet.id} className="flex items-center justify-between text-sm p-2 bg-primary/10 rounded-md">
+                                                                <div className="flex items-center gap-2">
+                                                                    <Avatar className="h-6 w-6"><AvatarImage src={player?.avatarUrl}/><AvatarFallback>{player?.name.charAt(0)}</AvatarFallback></Avatar>
+                                                                    <span>{player?.name}</span>
+                                                                    <Badge variant="secondary" className="text-xs">{bet.type === 'score' ? 'Placar' : 'Artilheiro'}</Badge>
+                                                                </div>
+                                                                <span className="font-bold text-primary">+ R$ {prizePerWinner.toFixed(2)}</span>
+                                                            </div>
+                                                        )
+                                                    })}
+                                                </div>
+                                            ) : <p className="text-sm text-muted-foreground text-center">Ninguém acertou o palpite para esta partida.</p>}
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            )
+                        }) : <p className="text-muted-foreground text-center py-8">Nenhum resultado de aposta para exibir.</p>}
+                    </div>
+                </ScrollArea>
+            </div>
+            <div className="lg:col-span-1">
+                 <Card>
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2"><Award/> Hall da Fama dos Palpiteiros</CardTitle>
+                        <CardDescription>Jogadores com os maiores ganhos em apostas.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                       <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>Pos.</TableHead>
+                                    <TableHead>Jogador</TableHead>
+                                    <TableHead className="text-right">Ganhos</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {hallOfFame.map((player, index) => (
+                                    <TableRow key={player.id}>
+                                        <TableCell className="font-bold flex items-center gap-1">
+                                            {index === 0 && <Crown className="w-4 h-4 text-yellow-400" />}
+                                            {index + 1}
+                                        </TableCell>
+                                        <TableCell>{player.name}</TableCell>
+                                        <TableCell className="text-right font-mono font-bold text-primary">R$ {(player.totalWinnings || 0).toFixed(2)}</TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    </CardContent>
+                </Card>
+            </div>
+        </div>
+    );
+};
+
+
+export default function BettingClient({ players: initialPlayerList, upcomingMatches: initialUpcomingMatches }: BettingClientProps) {
+  const { auth, loading } = useAuth();
+  
+  const [squad, setSquad] = useState<Player[]>([]);
+  const [allRegisteredBets, setAllRegisteredBets] = useState<Bet[]>([]);
+  const [teamName, setTeamName] = useState('Meu Fut');
+  const [upcomingMatches, setUpcomingMatches] = useState<Match[]>([]);
+  const [pastMatches, setPastMatches] = useState<Match[]>([]);
+  
+  const teamId = auth.teamId;
+
+  const storageKeys = useMemo(() => {
+    if (!teamId) return null;
+    return {
+      bets: `${teamId}_bets`,
+      players: `${teamId}_players`,
+      teamName: `${teamId}_teamName`,
+      defaultBetAmount: `${teamId}_defaultBetAmount`,
+    };
+  }, [teamId]);
+
+  useEffect(() => {
+    if (!storageKeys) return;
+
+    const loadData = () => {
+        try {
+            const storedBets = localStorage.getItem(storageKeys.bets);
+            setAllRegisteredBets(storedBets ? JSON.parse(storedBets) : []);
+            
+            const storedPlayers = localStorage.getItem(storageKeys.players);
+            setSquad(storedPlayers ? JSON.parse(storedPlayers) : initialPlayers);
+
+            const storedTeamName = localStorage.getItem(storageKeys.teamName);
+            setTeamName(storedTeamName || 'Meu Fut');
+            
+            const defaultBetAmountStr = localStorage.getItem(storageKeys.defaultBetAmount);
+            const defaultBetAmount = defaultBetAmountStr ? parseFloat(defaultBetAmountStr) : undefined;
+
+            const updatedUpcomingMatches = allMatches.filter(m => m.status === 'upcoming').map(match => {
+                if (match.bettingOpen && defaultBetAmount !== undefined) {
+                    return { ...match, betAmount: defaultBetAmount };
+                }
+                return match;
+            });
+
+            setUpcomingMatches(updatedUpcomingMatches);
+            setPastMatches(allMatches.filter(m => m.status === 'past'));
+
+        } catch (error) {
+            console.error("Failed to load data from localStorage", error);
+        }
+    };
+    loadData();
+
+    const handleDataUpdate = (event: Event) => {
+        const customEvent = event as CustomEvent;
+        if (customEvent.detail.teamId === teamId) {
+            loadData();
+        }
+    };
+
+    window.addEventListener('teamDataUpdated', handleDataUpdate);
+    return () => {
+        window.removeEventListener('teamDataUpdated', handleDataUpdate);
+    }
+  }, [storageKeys, teamId]);
+
+  const currentPlayer = useMemo(() => squad.find(p => p.id.toString() === auth.id), [squad, auth.id]);
+  
+  if (loading) {
+    return <Header title="Carregando Apostas..." pageContext="betting" />;
+  }
+
+  const bettingUser = auth.role === 'admin' ? {
+    id: 999,
+    name: "Diretor",
+    position: 'Atacante',
+    gamesPlayed: 0,
+    goals: 0,
+    assists: 0,
+    credits: 10000, 
+    avatarUrl: '',
+    shirtNumber: 0,
+    attendances: 0,
+    absences: 0,
+    totalWinnings: 0,
+    manOfTheMatchAwards: 0,
+  } : currentPlayer;
+
+  return (
+      <div>
+        <div className="flex items-center gap-4">
+            <Header title="Central de Apostas" pageContext="betting" />
+            <BettingRulesDialog />
+        </div>
+        <Tabs defaultValue="betting_area" className="w-full">
+            <TabsList className="grid w-full grid-cols-3">
+                <TabsTrigger value="betting_area"><Ticket className="mr-2"/>Apostar</TabsTrigger>
+                <TabsTrigger value="monitor" disabled={auth.role !== 'admin'}><Monitor className="mr-2"/>Monitorar</TabsTrigger>
+                <TabsTrigger value="results"><BarChart className="mr-2"/>Resultados</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="betting_area" className="mt-6">
+                <BettingArea
+                    user={bettingUser}
+                    teamName={teamName}
+                    players={squad}
+                    upcomingMatches={upcomingMatches}
+                    allRegisteredBets={allRegisteredBets}
+                    setAllRegisteredBets={setAllRegisteredBets}
+                    setSquad={setSquad}
+                    teamId={teamId}
+                />
+            </TabsContent>
+
+            <TabsContent value="monitor" className="mt-6">
+                 {auth.role === 'admin' ? (
+                    <BettingMonitor allRegisteredBets={allRegisteredBets} teamName={teamName} players={squad} />
+                ) : (
+                    <Card className="text-center p-8">
+                        <ShieldAlert className="mx-auto h-12 w-12 text-destructive" />
+                        <CardTitle className="mt-4">Acesso Restrito</CardTitle>
+                        <CardDescription>Apenas o Diretor pode monitorar as apostas.</CardDescription>
+                    </Card>
+                )}
+            </TabsContent>
+            
+             <TabsContent value="results" className="mt-6">
+                <ResultsAndRanking allRegisteredBets={allRegisteredBets} teamName={teamName} players={squad} matches={pastMatches} />
+            </TabsContent>
+        </Tabs>
+      </div>
+  );
+}

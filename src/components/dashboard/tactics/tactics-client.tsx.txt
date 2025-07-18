@@ -1,0 +1,702 @@
+
+'use client';
+
+import type { Player, MatchModality, Match, MatchLineup } from "@/lib/types";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import { Header } from "@/components/dashboard/header";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Bot, Loader2, Save, Maximize, X } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
+import { FieldView } from "./field-view";
+import { players as initialPlayersData, matches as allMatches } from "@/lib/mock-data";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { IndividualTacticCard } from "./individual-tactic-card";
+import { DrawingCanvas, type DrawingCanvasRef } from "./drawing-canvas";
+import { TacticalControlPopup } from "./tactical-control-popup";
+import { getLineupAnalysis } from "@/lib/mock-responses";
+import { useAuth } from "@/hooks/use-auth";
+
+type PlayerStatus = 'starter' | 'substitute' | 'unselected';
+
+const PLAYER_RADIUS = 3.0; // Defines the collision radius for players
+const BALL_RADIUS = 1.5;   // Defines the collision radius for the ball
+
+const positionColors: Record<Player['position'], string> = {
+    'Goleiro': 'bg-yellow-500/20 text-yellow-400 border-yellow-500/50',
+    'Defensor': 'bg-blue-500/20 text-blue-400 border-blue-500/50',
+    'Meio-campista': 'bg-green-500/20 text-green-400 border-green-500/50',
+    'Atacante': 'bg-red-500/20 text-red-400 border-red-500/50',
+};
+
+const formationsByModality: Record<MatchModality, string[]> = {
+    'Campo': ['4-4-2', '4-3-3', '3-5-2', '4-2-3-1'],
+    'Society': ['2-3-1', '3-2-1', '2-2-2'],
+    'Futsal': ['2-2', '3-1', '1-2-1'],
+};
+
+const playerLimits: Record<MatchModality, number> = {
+    'Campo': 11,
+    'Society': 7,
+    'Futsal': 5,
+};
+
+const getInitialPositions = (starters: Player[], formation: string): Record<number, { x: number; y: number; vx: number; vy: number; }> => {
+    if (!formation || starters.length === 0) return {};
+    const positions: Record<number, { x: number; y: number; vx: number; vy: number; }> = {};
+
+    const goalkeeper = starters.find(p => p.position === 'Goleiro');
+    
+    const fieldPlayers = starters
+        .filter(p => p.position !== 'Goleiro')
+        .sort((a, b) => {
+            const positionOrder = { 'Defensor': 1, 'Meio-campista': 2, 'Atacante': 3 };
+            return (positionOrder[a.position] || 4) - (positionOrder[b.position] || 4);
+        });
+    
+    if (goalkeeper) {
+        positions[goalkeeper.id] = { x: 50, y: 92, vx: 0, vy: 0, };
+    }
+    
+    const formationLines = formation.split('-').map(Number).filter(n => !isNaN(n) && n > 0);
+    const totalLines = formationLines.length;
+    let playerIdx = 0;
+
+    formationLines.forEach((numPlayersInLine, lineIndex) => {
+        const yPos = 80 - (lineIndex * (70 / (totalLines > 1 ? totalLines - 1 : 1)));
+        for (let i = 0; i < numPlayersInLine; i++) {
+            if (playerIdx < fieldPlayers.length) {
+                const player = fieldPlayers[playerIdx];
+                const xPos = (i + 1) * 100 / (numPlayersInLine + 1);
+                positions[player.id] = { x: xPos, y: yPos, vx: 0, vy: 0, };
+                playerIdx++;
+            }
+        }
+    });
+    
+    if(playerIdx < fieldPlayers.length) {
+        fieldPlayers.slice(playerIdx).forEach((player, i) => {
+            if (!positions[player.id]) {
+                positions[player.id] = { x: 20 + (i * 15), y: 50, vx: 0, vy: 0, };
+            }
+        });
+    }
+
+    return positions;
+};
+
+
+export function TacticsClient({ upcomingMatches: initialUpcomingMatches, selectedMatchIdProp }: { upcomingMatches: Match[], selectedMatchIdProp: string | null }) {
+    const { toast } = useToast();
+    const { auth } = useAuth();
+    const gameLoopRef = useRef<number>();
+    
+    const [players, setPlayers] = useState<Player[]>([]);
+    const [playersLoaded, setPlayersLoaded] = useState(false);
+    const [teamName, setTeamName] = useState('Meu Fut');
+    const [upcomingMatches, setUpcomingMatches] = useState<Match[]>(initialUpcomingMatches);
+    const [selectedMatchId, setSelectedMatchId] = useState<string | undefined>(selectedMatchIdProp ?? (initialUpcomingMatches.length > 0 ? initialUpcomingMatches[0].id.toString() : undefined));
+    const [lineup, setLineup] = useState<MatchLineup>({});
+    const [modality, setModality] = useState<MatchModality>('Campo');
+    const [formation, setFormation] = useState('');
+    const [selectedPlayerId, setSelectedPlayerId] = useState<number | null>(null);
+    
+    const [playerPositions, setPlayerPositions] = useState<Record<number, { x: number; y: number; vx: number; vy: number; }>>({});
+    const [ballPosition, setBallPosition] = useState({ x: 50, y: 50, vx: 0, vy: 0 });
+    
+    const [draggingPlayerId, setDraggingPlayerId] = useState<number | null>(null);
+    const dragInfo = useRef({ startX: 0, startY: 0, lastX: 0, lastY: 0, lastTime: 0, velocity: { x: 0, y: 0 } });
+    
+    const [isFullscreen, setIsFullscreen] = useState(false);
+    const [isDrawing, setIsDrawing] = useState(false);
+    const [showControls, setShowControls] = useState(false);
+    const fieldContainerRef = useRef<HTMLDivElement>(null);
+    const canvasRef = useRef<DrawingCanvasRef>(null);
+
+    const [loadingGeneral, setLoadingGeneral] = useState(false);
+    const [generalAnalysis, setGeneralAnalysis] = useState<string | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    
+    const PLAYERS_STORAGE_KEY = useMemo(() => auth.teamId ? `${auth.teamId}_players` : null, [auth.teamId]);
+
+    const selectedMatch = useMemo(() => {
+        if (!selectedMatchId) return undefined;
+        return upcomingMatches.find(m => m.id.toString() === selectedMatchId);
+    }, [selectedMatchId, upcomingMatches]);
+    
+    const { starters, substitutes } = useMemo(() => {
+        const lineupStarters: Player[] = [];
+        const lineupSubstitutes: Player[] = [];
+
+        players.forEach(player => {
+            const playerStatus = lineup[player.id]?.status;
+            if (playerStatus === 'starter') {
+                lineupStarters.push(player);
+            } else if (playerStatus === 'substitute') {
+                lineupSubstitutes.push(player);
+            }
+        });
+
+        return { starters: lineupStarters, substitutes: lineupSubstitutes };
+    }, [lineup, players]);
+
+     useEffect(() => {
+        const loadPlayers = () => {
+            if (!PLAYERS_STORAGE_KEY) return;
+             try {
+                const storedPlayers = localStorage.getItem(PLAYERS_STORAGE_KEY);
+                setPlayers(storedPlayers ? JSON.parse(storedPlayers) : initialPlayersData);
+            } catch (error) {
+                console.error("Failed to load players from localStorage", error);
+                setPlayers(initialPlayersData);
+            } finally {
+                setPlayersLoaded(true);
+            }
+        };
+
+        const handleMatchesUpdate = () => {
+            const updatedMatches = allMatches.filter(m => m.status === 'upcoming');
+            setUpcomingMatches(updatedMatches);
+        };
+        
+        loadPlayers();
+        handleMatchesUpdate();
+
+        window.addEventListener('teamDataUpdated', (e) => {
+            const event = e as CustomEvent;
+            if(event.detail.teamId === auth.teamId) {
+                loadPlayers();
+                handleMatchesUpdate();
+                const teamNameKey = `${auth.teamId}_teamName`;
+                const storedTeamName = localStorage.getItem(teamNameKey) || 'Meu Fut';
+                setTeamName(storedTeamName);
+            }
+        });
+        window.addEventListener('matchesUpdated', handleMatchesUpdate);
+
+        return () => {
+            window.removeEventListener('teamDataUpdated', () => {});
+            window.removeEventListener('matchesUpdated', handleMatchesUpdate);
+        };
+    }, [PLAYERS_STORAGE_KEY, auth.teamId]);
+
+    const resetPhysicsState = useCallback((match: Match | undefined) => {
+        if (!match || !playersLoaded) return;
+        const currentStarters = players.filter(p => match.lineup[p.id]?.status === 'starter');
+        const initialPos = match.playerPositions 
+            ? Object.entries(match.playerPositions).reduce((acc, [id, pos]) => {
+                acc[Number(id)] = { ...pos, vx: 0, vy: 0 };
+                return acc;
+            }, {} as Record<number, { x: number; y: number; vx: number; vy: number; }>)
+            : getInitialPositions(currentStarters, match.formation);
+        setPlayerPositions(initialPos);
+        setBallPosition({ x: 50, y: 50, vx: 0, vy: 0 });
+    }, [players, playersLoaded]);
+
+    useEffect(() => {
+        if (selectedMatch && playersLoaded) {
+            const completeLineup = players.reduce((acc, player) => {
+                acc[player.id] = selectedMatch.lineup[player.id] || { status: 'unselected', position: player.position };
+                return acc;
+            }, {} as MatchLineup);
+
+            setLineup(completeLineup);
+            setModality(selectedMatch.modality);
+            setFormation(selectedMatch.formation);
+            setError(null);
+            setGeneralAnalysis(null);
+            setSelectedPlayerId(null);
+            resetPhysicsState(selectedMatch);
+        }
+    }, [selectedMatch, players, playersLoaded, resetPhysicsState]);
+    
+    useEffect(() => {
+        if (selectedMatch && playersLoaded) {
+            const hasCustomPositions = !!selectedMatch.playerPositions;
+            const currentStarters = players.filter(p => lineup[p.id]?.status === 'starter');
+
+            if (!hasCustomPositions) {
+                 const initialPositions = getInitialPositions(currentStarters, formation);
+                 setPlayerPositions(initialPositions);
+            } else {
+                // Ensure playerPositions only contains starters and they have velocity
+                const starterIds = new Set(currentStarters.map(p => p.id));
+                const updatedPositions = Object.entries(selectedMatch.playerPositions!)
+                    .filter(([id]) => starterIds.has(Number(id)))
+                    .reduce((acc, [id, pos]) => {
+                        acc[Number(id)] = { ...pos, vx: 0, vy: 0 };
+                        return acc;
+                    }, {} as Record<number, { x: number, y: number, vx: number, vy: number }>);
+                setPlayerPositions(updatedPositions);
+            }
+        }
+    }, [starters.map(s => s.id).join(','), formation, selectedMatch, lineup, players, playersLoaded]);
+
+    const gameTick = useCallback(() => {
+        const FRICTION = 0.94;
+        const BALL_FRICTION = 0.97;
+        const BORDER_DAMPING = -0.5;
+
+        setPlayerPositions(prevPositions => {
+            const newPositions = JSON.parse(JSON.stringify(prevPositions));
+            const playerIds = Object.keys(newPositions).map(Number);
+
+            // Update positions and apply friction
+            playerIds.forEach(id => {
+                const p = newPositions[id];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.vx *= FRICTION;
+                p.vy *= FRICTION;
+            });
+
+            // Handle collisions between players
+            for (let i = 0; i < playerIds.length; i++) {
+                for (let j = i + 1; j < playerIds.length; j++) {
+                    const p1 = newPositions[playerIds[i]];
+                    const p2 = newPositions[playerIds[j]];
+                    const dx = p2.x - p1.x;
+                    const dy = p2.y - p1.y;
+                    const dist = Math.hypot(dx, dy);
+
+                    if (dist < PLAYER_RADIUS * 2) {
+                        const overlap = (PLAYER_RADIUS * 2 - dist) / 2;
+                        const nx = dx / dist;
+                        const ny = dy / dist;
+                        p1.x -= nx * overlap; p1.y -= ny * overlap;
+                        p2.x += nx * overlap; p2.y += ny * overlap;
+
+                        const p1v = { x: p1.vx, y: p1.vy };
+                        p1.vx = p2.vx; p1.vy = p2.vy;
+                        p2.vx = p1v.x; p2.vy = p1v.y;
+                    }
+                }
+            }
+            
+            // Handle player-ball collision
+             setBallPosition(prevBall => {
+                let newBall = { ...prevBall };
+                playerIds.forEach(id => {
+                    const p = newPositions[id];
+                    const dx = newBall.x - p.x;
+                    const dy = newBall.y - p.y;
+                    const dist = Math.hypot(dx, dy);
+
+                    if (dist < PLAYER_RADIUS + BALL_RADIUS) {
+                        const overlap = (PLAYER_RADIUS + BALL_RADIUS - dist);
+                        const nx = dx / dist;
+                        const ny = dy / dist;
+                        
+                        // Move ball out of player
+                        newBall.x += nx * overlap;
+                        newBall.y += ny * overlap;
+
+                        const force = Math.hypot(p.vx, p.vy);
+                        const impulse = 1.5;
+                        const dotProduct = (p.vx * nx + p.vy * ny);
+                        
+                        newBall.vx += dotProduct * nx * impulse;
+                        newBall.vy += dotProduct * ny * impulse;
+
+                        p.vx -= dotProduct * nx * 0.1;
+                        p.vy -= dotProduct * ny * 0.1;
+                    }
+                });
+                return newBall;
+            });
+            
+            // Handle boundary collisions for players
+            playerIds.forEach(id => {
+                const p = newPositions[id];
+                if (p.x < PLAYER_RADIUS) { p.x = PLAYER_RADIUS; p.vx *= BORDER_DAMPING; }
+                if (p.x > 100 - PLAYER_RADIUS) { p.x = 100 - PLAYER_RADIUS; p.vx *= BORDER_DAMPING; }
+                if (p.y < PLAYER_RADIUS) { p.y = PLAYER_RADIUS; p.vy *= BORDER_DAMPING; }
+                if (p.y > 100 - PLAYER_RADIUS) { p.y = 100 - PLAYER_RADIUS; p.vy *= BORDER_DAMPING; }
+            });
+            
+            return newPositions;
+        });
+       
+        setBallPosition(prevBall => {
+            let newBall = { ...prevBall };
+            newBall.x += newBall.vx;
+            newBall.y += newBall.vy;
+            newBall.vx *= BALL_FRICTION;
+            newBall.vy *= BALL_FRICTION;
+            if (newBall.x < BALL_RADIUS) { newBall.x = BALL_RADIUS; newBall.vx *= BORDER_DAMPING; }
+            if (newBall.x > 100 - BALL_RADIUS) { newBall.x = 100 - BALL_RADIUS; newBall.vx *= BORDER_DAMPING; }
+            if (newBall.y < BALL_RADIUS) { newBall.y = BALL_RADIUS; newBall.vy *= BORDER_DAMPING; }
+            if (newBall.y > 100 - BALL_RADIUS) { newBall.y = 100 - BALL_RADIUS; newBall.vy *= BORDER_DAMPING; }
+            return newBall;
+        });
+        
+        if (isFullscreen) {
+            gameLoopRef.current = requestAnimationFrame(gameTick);
+        }
+    }, [isFullscreen]);
+    
+    useEffect(() => {
+        if (isFullscreen) {
+            gameLoopRef.current = requestAnimationFrame(gameTick);
+        } else {
+            if (gameLoopRef.current) {
+                cancelAnimationFrame(gameLoopRef.current);
+            }
+        }
+        return () => {
+            if (gameLoopRef.current) cancelAnimationFrame(gameLoopRef.current);
+        }
+    }, [isFullscreen, gameTick]);
+
+    const handlePlayerStatusChange = (playerId: number, status: PlayerStatus) => {
+        if (!selectedMatch) return;
+        const currentLimit = playerLimits[selectedMatch.modality];
+        const isCurrentlyStarter = lineup[playerId]?.status === 'starter';
+        
+        if (status === 'starter' && !isCurrentlyStarter) {
+            if (starters.length >= currentLimit) {
+                 toast({
+                    variant: "destructive",
+                    title: "Limite de Titulares Atingido",
+                    description: `A modalidade ${modality} permite apenas ${currentLimit} titulares.`,
+                });
+                return;
+            }
+        }
+        
+        const newLineup = { ...lineup, [playerId]: { ...lineup[playerId], status } };
+        setLineup(newLineup);
+    };
+
+    const handleGenerateGeneralAnalysis = () => {
+        if (starters.length === 0) {
+            toast({ variant: "destructive", title: "Nenhum titular selecionado" });
+            return;
+        }
+        setLoadingGeneral(true);
+        setError(null);
+        setGeneralAnalysis(null);
+        
+        setTimeout(() => {
+            try {
+                const analysis = getLineupAnalysis(formation, starters, substitutes);
+                setGeneralAnalysis(analysis);
+            } catch (e) {
+                console.error(e);
+                setError("Falha ao gerar a análise geral. Tente novamente.");
+                toast({ variant: "destructive", title: "Erro na Análise" });
+            } finally {
+                setLoadingGeneral(false);
+            }
+        }, 500);
+    };
+
+     const handleSaveTactics = () => {
+        if (!selectedMatchId) {
+            toast({ variant: "destructive", title: "Nenhuma partida selecionada" });
+            return;
+        }
+        const matchIndex = allMatches.findIndex(m => m.id.toString() === selectedMatchId);
+        if (matchIndex > -1) {
+            const positionsToSave = Object.entries(playerPositions).reduce((acc, [id, pos]) => {
+                acc[Number(id)] = { x: pos.x, y: pos.y };
+                return acc;
+            }, {} as Record<number, { x: number, y: number }>);
+            
+            allMatches[matchIndex] = { ...allMatches[matchIndex], modality, formation, lineup, playerPositions: positionsToSave };
+            toast({ title: "Táticas Salvas!" });
+            window.dispatchEvent(new Event('matchesUpdated'));
+        } else {
+             toast({ variant: "destructive", title: "Erro ao Salvar" });
+        }
+    };
+    
+    const selectedPlayer = useMemo(() => {
+        return players.find(p => p.id === selectedPlayerId) || null;
+    }, [selectedPlayerId, players]);
+    
+    const handlePlayerDragStart = (id: number, e: React.MouseEvent | React.TouchEvent) => {
+        if (isDrawing) return;
+        const event = 'touches' in e ? e.touches[0] : e;
+        setDraggingPlayerId(id);
+        dragInfo.current = {
+            ...dragInfo.current,
+            startX: event.clientX,
+            startY: event.clientY,
+            lastX: event.clientX,
+            lastY: event.clientY,
+            lastTime: Date.now(),
+        };
+    };
+
+    const handlePlayerDragEnd = () => {
+        if (draggingPlayerId) {
+            const finalVelocity = dragInfo.current.velocity;
+            setPlayerPositions(prev => ({
+                ...prev,
+                [draggingPlayerId]: { ...prev[draggingPlayerId], vx: finalVelocity.x, vy: finalVelocity.y }
+            }));
+            setDraggingPlayerId(null);
+        }
+    };
+    
+    const handlePlayerDrag = (e: React.MouseEvent | React.TouchEvent) => {
+        if (!draggingPlayerId || !fieldContainerRef.current) return;
+        e.preventDefault();
+        
+        const event = 'touches' in e ? e.touches[0] : e;
+        const rect = fieldContainerRef.current.getBoundingClientRect();
+
+        const x = ((event.clientX - rect.left) / rect.width) * 100;
+        const y = ((event.clientY - rect.top) / rect.height) * 100;
+        
+        const clampedX = Math.max(PLAYER_RADIUS, Math.min(100 - PLAYER_RADIUS, x));
+        const clampedY = Math.max(PLAYER_RADIUS, Math.min(100 - PLAYER_RADIUS, y));
+        
+        const now = Date.now();
+        const deltaTime = (now - dragInfo.current.lastTime) || 1; 
+
+        const vx = (event.clientX - dragInfo.current.lastX) / deltaTime * 2; // Multiplier for feel
+        const vy = (event.clientY - dragInfo.current.lastY) / deltaTime * 2;
+
+        dragInfo.current = {
+            ...dragInfo.current,
+            lastX: event.clientX,
+            lastY: event.clientY,
+            lastTime: now,
+            velocity: { x: vx, y: vy },
+        };
+        
+        setPlayerPositions(prev => ({ ...prev, [draggingPlayerId]: { ...prev[draggingPlayerId], x: clampedX, y: clampedY, vx: 0, vy: 0 } }));
+    };
+
+    const handlePlayerClick = (id: number | null) => {
+        if (isDrawing) return;
+        setSelectedPlayerId(id);
+    };
+    
+    const renderFieldView = (isInteractive: boolean) => (
+         <FieldView
+            interactive={isInteractive}
+            modality={modality}
+            starters={starters}
+            playerPositions={playerPositions}
+            ballPosition={ballPosition}
+            selectedPlayerId={selectedPlayerId}
+            draggingPlayerId={draggingPlayerId}
+            onPlayerClick={handlePlayerClick}
+            onPlayerDragStart={handlePlayerDragStart}
+            onPlayerDrag={handlePlayerDrag}
+            onPlayerDragEnd={handlePlayerDragEnd}
+            isDrawing={isDrawing}
+        >
+            {isInteractive && isDrawing && <DrawingCanvas ref={canvasRef} />}
+        </FieldView>
+    );
+
+    if (!selectedMatch) {
+      return (
+        <div>
+           <Header title="Prancheta Tática" pageContext="tactics" />
+            <div className="w-full">
+              <Label htmlFor="match-select">Selecione a Partida</Label>
+              <Select value={selectedMatchId} onValueChange={setSelectedMatchId}>
+                  <SelectTrigger id="match-select"><SelectValue placeholder="Escolha uma partida..." /></SelectTrigger>
+                  <SelectContent>
+                      {upcomingMatches.map(match => (
+                          <SelectItem key={match.id} value={match.id.toString()}>
+                              {teamName} vs {match.opponent} ({new Date(match.date).toLocaleDateString('pt-BR', { timeZone: 'UTC' })})
+                          </SelectItem>
+                      ))}
+                  </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center justify-center h-96 text-muted-foreground bg-muted/20 rounded-lg mt-4">
+              <p>Nenhuma partida selecionada ou disponível.</p>
+            </div>
+        </div>
+      );
+    }
+
+    if (!playersLoaded) {
+      return <div>Carregando jogadores...</div>
+    }
+
+    return (
+        <div>
+            <Header title="Prancheta Tática" pageContext="tactics" />
+            
+             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
+                {/* Left Column: Controls & Info */}
+                <div className="lg:col-span-1 flex flex-col gap-6">
+                    <div className="flex flex-col gap-4">
+                        <div className="w-full">
+                            <Label htmlFor="match-select">Selecione a Partida</Label>
+                            <Select value={selectedMatchId} onValueChange={setSelectedMatchId}>
+                                <SelectTrigger id="match-select"><SelectValue placeholder="Escolha uma partida..." /></SelectTrigger>
+                                <SelectContent>
+                                    {upcomingMatches.map(match => (
+                                        <SelectItem key={match.id} value={match.id.toString()}>
+                                            {teamName} vs {match.opponent} ({new Date(match.date).toLocaleDateString('pt-BR', { timeZone: 'UTC' })})
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="flex gap-4">
+                            <div className="w-full">
+                                <Label htmlFor="modality-select">Modalidade</Label>
+                                <Select value={modality} onValueChange={(v) => setModality(v as MatchModality)} disabled={!selectedMatch}>
+                                    <SelectTrigger id="modality-select"><SelectValue/></SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="Campo">Campo</SelectItem>
+                                        <SelectItem value="Society">Society</SelectItem>
+                                        <SelectItem value="Futsal">Futsal</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="w-full">
+                                <Label htmlFor="formation-select">Formação</Label>
+                                <Select value={formation} onValueChange={setFormation} disabled={!selectedMatch}>
+                                    <SelectTrigger id="formation-select"><SelectValue/></SelectTrigger>
+                                    <SelectContent>
+                                        {formationsByModality[modality].map(f => <SelectItem key={f} value={f}>{f}</SelectItem>)}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        </div>
+                         <div className="flex gap-2">
+                             <Button onClick={handleSaveTactics} disabled={!selectedMatchId} className="w-full gap-2">
+                                <Save size={16} /> Salvar Táticas
+                            </Button>
+                        </div>
+                    </div>
+
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Gerenciar Elenco ({starters.length}/{playerLimits[modality]})</CardTitle>
+                            <CardDescription>Defina titulares (T) e reservas (R).</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            <ScrollArea className="h-96 pr-3">
+                                <div className="space-y-4">
+                                    {players.map(player => (
+                                        <div key={player.id} className="flex items-center gap-3">
+                                            <Avatar>
+                                                <AvatarImage src={player.avatarUrl} alt={player.name} data-ai-hint="player photo" />
+                                                <AvatarFallback>{player.name.charAt(0)}</AvatarFallback>
+                                            </Avatar>
+                                            <div className="flex-grow">
+                                                <p className="font-semibold">{player.name}</p>
+                                                <Badge variant="outline" className={cn("text-xs", player.position && positionColors[player.position])}>{player.position}</Badge>
+                                            </div>
+                                            <RadioGroup
+                                                value={lineup[player.id]?.status || 'unselected'}
+                                                onValueChange={(value) => handlePlayerStatusChange(player.id, value as PlayerStatus)}
+                                                className="flex gap-2"
+                                            >
+                                                <div className="flex items-center space-x-1"><RadioGroupItem value="starter" id={`starter-${player.id}`} /><Label htmlFor={`starter-${player.id}`} className="text-xs">T</Label></div>
+                                                <div className="flex items-center space-x-1"><RadioGroupItem value="substitute" id={`sub-${player.id}`} /><Label htmlFor={`sub-${player.id}`} className="text-xs">R</Label></div>
+                                                <div className="flex items-center space-x-1"><RadioGroupItem value="unselected" id={`none-${player.id}`} /><Label htmlFor={`none-${player.id}`} className="text-xs">N</Label></div>
+                                            </RadioGroup>
+                                        </div>
+                                    ))}
+                                </div>
+                            </ScrollArea>
+                        </CardContent>
+                    </Card>
+                </div>
+
+                {/* Right Column: Field & Analysis */}
+                <div className="lg:col-span-2 flex flex-col gap-6">
+                    <Card className="flex-grow">
+                        <CardContent className="p-0 relative h-full min-h-[500px] lg:min-h-[70vh] aspect-[9/14]" ref={fieldContainerRef}>
+                            {renderFieldView(true)}
+                            <Button onClick={() => setIsFullscreen(true)} variant="outline" size="icon" aria-label="Tela cheia" className="absolute top-2 right-2 z-30">
+                                <Maximize className="h-5 w-5" />
+                            </Button>
+                        </CardContent>
+                    </Card>
+
+                     {selectedPlayer && selectedMatch && !isFullscreen ? (
+                        <IndividualTacticCard
+                            player={selectedPlayer}
+                            formation={formation}
+                            modality={modality}
+                            onClose={() => setSelectedPlayerId(null)}
+                        />
+                    ) : (
+                        <Card>
+                            <CardHeader>
+                                <div className="flex flex-row items-center justify-between">
+                                    <div className="space-y-1"><CardTitle className="text-xl">Análise Geral do Sistema</CardTitle><CardDescription>Visão estratégica.</CardDescription></div>
+                                    <Button onClick={handleGenerateGeneralAnalysis} disabled={loadingGeneral || starters.length === 0} size="sm" className="gap-1"><Bot />Analisar</Button>
+                                </div>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="pt-2 min-h-[150px]">
+                                    {loadingGeneral && <div className="flex items-center justify-center gap-2 p-4 text-muted-foreground"><Loader2 className="animate-spin" />Analisando...</div>}
+                                    {error && <p className="text-destructive text-center p-4">{error}</p>}
+                                    {generalAnalysis ? (
+                                        <div className="prose prose-sm prose-invert max-w-none text-foreground/90 prose-headings:text-primary prose-strong:text-primary/90 prose-ul:text-foreground/80 rounded-md bg-muted/30 p-4 whitespace-pre-wrap">
+                                            <style jsx global>{`
+                                                .prose strong.text-green-400 { color: hsl(var(--primary)); }
+                                                .prose strong.text-red-400 { color: hsl(var(--destructive)); }
+                                            `}</style>
+                                            <div dangerouslySetInnerHTML={{ __html: generalAnalysis.replace(/\\n/g, '<br />') }}></div>
+                                        </div>
+                                    ) : (
+                                        !loadingGeneral && !error && <p className="text-muted-foreground text-center text-sm p-4">Selecione os titulares e clique em "Analisar".</p>
+                                    )}
+                                </div>
+                            </CardContent>
+                        </Card>
+                    )}
+                </div>
+            </div>
+
+            <Dialog open={isFullscreen} onOpenChange={setIsFullscreen}>
+                <DialogContent className="p-0 border-none w-screen h-screen max-w-full max-h-full rounded-none bg-background">
+                    <DialogHeader className="sr-only"><DialogTitle>Prancheta Tática em Tela Cheia</DialogTitle></DialogHeader>
+                    <div className="w-full h-full relative" ref={fieldContainerRef}>
+                        {renderFieldView(true)}
+                        
+                        <div className="absolute top-4 left-4 z-50 flex items-center gap-2">
+                             {showControls ? (
+                                <TacticalControlPopup
+                                    onSetMode={(mode) => { setIsDrawing(mode === 'draw' || mode === 'erase'); canvasRef.current?.setMode(mode); }}
+                                    onSetColor={(color) => canvasRef.current?.setColor(color)}
+                                    onClear={() => canvasRef.current?.clearCanvas()}
+                                    onClose={() => {
+                                        setShowControls(false);
+                                        setIsDrawing(false);
+                                    }}
+                                />
+                             ) : (
+                                 <Button 
+                                     variant="secondary" 
+                                     size="icon"
+                                     onClick={() => setShowControls(true)}
+                                     className="bg-black/50 hover:bg-black/70 text-white"
+                                >
+                                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-pencil-ruler"><path d="m15 5 4 4"/><path d="M13 7 8.7 2.7a2.41 2.41 0 0 0-3.4 0L2.7 5.3a2.41 2.41 0 0 0 0 3.4L7 13"/><path d="m8 6 2-2"/><path d="M7 21h12"/><path d="M18 17v4"/><path d="M15 17v4"/><path d="M12 17v4"/><path d="M9 17v4"/></svg>
+                                 </Button>
+                             )}
+                        </div>
+
+                        <Button onClick={() => { setIsFullscreen(false); }} variant="ghost" size="icon" className="absolute top-4 right-4 z-50 bg-black/50 hover:bg-black/70 text-white">
+                            <X className="h-6 w-6" />
+                        </Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
+        </div>
+    );
+}

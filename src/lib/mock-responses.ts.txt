@@ -1,0 +1,321 @@
+
+import type { Match, Player } from './types';
+
+// Helper function to pick a random item from an array
+const pickRandom = <T,>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
+
+// --- Tactical Analysis for a Match ---
+const tacticalAnalyses = [
+    "O adversário parece vulnerável a contra-ataques rápidos. Explorar a velocidade dos nossos pontas pode ser a chave para a vitória. É crucial manter a solidez defensiva e não ceder espaços nas costas da zaga.",
+    "A equipe adversária pressiona muito a saída de bola. Precisaremos de calma e qualidade no passe para superar a primeira linha de marcação. Inverter o jogo rapidamente pode pegar a defesa deles desorganizada.",
+    "Eles têm um meio-campo muito físico. Evitar o confronto direto e apostar na movimentação e triangulações pode ser mais eficaz. Bolas paradas serão uma arma importante hoje.",
+    "A principal ameaça deles é o camisa 10. Uma marcação individual mais próxima nele pode neutralizar grande parte do poder de criação do adversário. Devemos ser agressivos, mas leais.",
+    "Notamos que o lateral esquerdo deles sobe muito. Podemos explorar esse espaço com lançamentos longos para o nosso ponta direita. A transição defesa-ataque precisa ser relâmpago.",
+];
+
+export function getTacticalAnalysis(match: Match): string {
+    return pickRandom(tacticalAnalyses);
+}
+
+
+// --- New Detailed Formation Analysis Database ---
+const formationAnalyses: Record<string, { philosophy: string; strength: string; weakness: string; instruction: string; }> = {
+    // --- CAMPO (11v11) ---
+    '4-4-2': {
+        philosophy: "A formação mais equilibrada e tradicional. Foca em solidez defensiva com duas linhas de quatro e flexibilidade ofensiva com dois atacantes.",
+        strength: "Excelente cobertura do campo, dificultando a criação de jogadas do adversário pelo meio e pelos lados. É uma formação segura e difícil de ser batida.",
+        weakness: "Pode se tornar previsível e estático se os meio-campistas e laterais não apoiarem o ataque. Há um risco de isolamento entre o meio-campo e o ataque.",
+        instruction: "A chave é a movimentação dos homens de meio. Eles precisam 'quebrar as linhas' para se conectar com os atacantes e não deixar o time em dois blocos separados."
+    },
+    '4-3-3': {
+        philosophy: "Foco no ataque e na pressão alta. Utiliza três atacantes para alargar o campo, criar superioridade numérica ofensiva e pressionar a saída de bola adversária.",
+        strength: "Muito poderoso ofensivamente, com pontas velozes e um centroavante finalizador. Ideal para um estilo de jogo agressivo e de posse de bola.",
+        weakness: "Exige muito dos três meio-campistas para cobrir os espaços, podendo deixar a defesa vulnerável a contra-ataques se a pressão na frente falhar.",
+        instruction: "Os pontas devem ser disciplinados na recomposição para ajudar os laterais, transformando o sistema em um 4-5-1 sem a bola."
+    },
+    '3-5-2': {
+        philosophy: "Dominar o meio-campo. Com cinco jogadores no setor, a ideia é ter a posse de bola e controlar o ritmo do jogo, utilizando alas para dar amplitude.",
+        strength: "Superioridade numérica no meio-campo, facilitando a manutenção da posse e a criação de jogadas. Os alas dão largura e profundidade ao time.",
+        weakness: "Os espaços nas costas dos alas são o principal ponto fraco. Exige zagueiros rápidos e um bom entrosamento na cobertura.",
+        instruction: "O sucesso desta formação depende 100% da capacidade física e tática dos alas. Eles precisam ter fôlego para atacar e defender com a mesma intensidade."
+    },
+    '4-2-3-1': {
+        philosophy: "Uma variação moderna do 4-4-2, focada na figura de um 'camisa 10' centralizado. Proporciona equilíbrio defensivo e poder de fogo com quatro jogadores no ataque.",
+        strength: "Grande flexibilidade tática. O meia-armador central tem liberdade para criar, enquanto os dois volantes protegem a defesa e os pontas dão profundidade.",
+        weakness: "Depende muito da criatividade do meia-armador. Se ele for bem marcado, o time pode ter dificuldades para criar chances de gol.",
+        instruction: "Os volantes precisam ser disciplinados. Um deve ser mais focado na marcação, enquanto o outro tem liberdade para se juntar ao ataque como elemento surpresa."
+    },
+    // --- SOCIETY (7v7) ---
+    '2-3-1': {
+        philosophy: "Um sistema em formato de diamante que busca o controle do meio-campo e a ligação direta com um atacante de referência. O 'cabeça de área' é a âncora defensiva.",
+        strength: "Forte presença no meio-campo, permitindo o controle da posse de bola. O meia central tem liberdade para armar o jogo para os alas e o atacante.",
+        weakness: "Exige muito dos dois zagueiros, que ficam frequentemente no mano a mano. Os alas precisam recompor rapidamente para não sobrecarregar a defesa.",
+        instruction: "O volante (cabeça de área) é o jogador mais importante. Ele precisa ter grande leitura de jogo para proteger a zaga e iniciar as jogadas."
+    },
+    '3-2-1': {
+        philosophy: "Prioriza a segurança defensiva com uma linha de três zagueiros, liberando os dois meio-campistas para armar e um atacante para finalizar.",
+        strength: "Extremamente sólido defensivamente. É muito difícil sofrer gols nesta formação, sendo ideal para segurar resultados ou enfrentar adversários mais fortes.",
+        weakness: "Pode ser muito defensivo se os zagueiros laterais (ou alas) não avançarem. O time pode ficar sem opções de passe no ataque.",
+        instruction: "Os dois jogadores de meio precisam ser dinâmicos ('box-to-box'), capazes de defender e atacar, para não deixar o time estático."
+    },
+    '2-2-2': {
+        philosophy: "Conhecido como 'quadrado' ou 'caixote'. É uma formação que divide o time em três blocos bem definidos: defesa, meio e ataque.",
+        strength: "Simples de entender e executar, mantendo o time sempre compacto. Facilita a criação de linhas de passe curtas e triangulações.",
+        weakness: "Vulnerável a jogadas diagonais e inversões de bola, pois não possui um jogador central para cobrir os espaços entre os blocos.",
+        instruction: "A comunicação e o entrosamento entre as duplas (de zaga, meio e ataque) são fundamentais para a cobertura de espaços e a movimentação coordenada."
+    },
+    // --- FUTSAL (5v5) ---
+    '2-2': {
+        philosophy: "Sistema 'quadrado' básico do futsal, com dois jogadores focados na defesa (fixos) e dois na frente (alas/pivô).",
+        strength: "Estrutura equilibrada e simples, oferecendo segurança defensiva e opções claras no ataque. Ideal para iniciar um trabalho tático.",
+        weakness: "Pode se tornar estático e previsível. Exige que os jogadores troquem de posição para quebrar a marcação adversária.",
+        instruction: "A movimentação é tudo. Os jogadores não podem se limitar às suas posições iniciais; o 'rodízio' constante é o que fará a diferença."
+    },
+    '3-1': {
+        philosophy: "Utiliza um pivô fixo na frente como referência para as jogadas, com três jogadores atrás dando suporte e segurança defensiva.",
+        strength: "Excelente para o jogo de pivô, segurando a bola no ataque e esperando a infiltração dos alas. Forte defensivamente.",
+        weakness: "Muito dependente da qualidade do pivô. Se ele não conseguir segurar a bola, o time fica sem opções de ataque.",
+        instruction: "Os alas precisam ser rápidos e inteligentes para atacar o espaço nas costas da defesa adversária assim que o pivô recebe a bola."
+    },
+    '1-2-1': {
+        philosophy: "Sistema 'losango', muito dinâmico e moderno. Utiliza um fixo, dois alas e um pivô, cobrindo bem a quadra em todas as fases do jogo.",
+        strength: "É a formação mais equilibrada do futsal. Permite transições rápidas, boa cobertura defensiva e múltiplas opções de passe.",
+        weakness: "Exige jogadores muito inteligentes taticamente e com bom preparo físico, pois a troca de funções é constante.",
+        instruction: "A chave é o fixo. Ele precisa ser um excelente marcador e, ao mesmo tempo, ter qualidade no passe para armar o jogo de trás."
+    }
+};
+
+
+export function getLineupAnalysis(formation: string, starters: Player[], substitutes: Player[]): string {
+    const analysis = formationAnalyses[formation];
+    if (!analysis) {
+        return `Análise para a formação ${formation} não encontrada.`;
+    }
+
+    return `
+### 🧠 **Filosofia de Jogo**
+${analysis.philosophy}
+
+### ✅ <strong class="text-green-400">Pontos Fortes</strong>
+${analysis.strength}
+
+### ❌ <strong class="text-red-400">Pontos Fracos</strong>
+${analysis.weakness}
+
+### 🏆 **Instrução Chave**
+${analysis.instruction}
+    `.trim();
+}
+
+// --- Individual Player Tactics by Formation ---
+
+const playerTacticsByFormation: Record<string, Record<string, Record<'offensive' | 'defensive', string[]>>> = {
+    // --- CAMPO (11v11) ---
+    '4-4-2': {
+        'Atacante': {
+            offensive: ["Trabalhe em dupla com seu parceiro de ataque. Um busca o espaço, o outro segura a bola.", "Ataque o espaço entre o zagueiro e o lateral adversário.", "Seja a primeira linha de pressão na saída de bola do adversário."],
+            defensive: ["Feche o passe para o primeiro volante adversário.", "Não se desgaste perseguindo laterais; concentre-se nos zagueiros.", "Force o erro na construção da jogada adversária."]
+        },
+        'Meio-campista': {
+            offensive: ["Se você é um meia central, infiltre na área como surpresa. Se é um meia lateral, busque a linha de fundo.", "Apoie os atacantes e crie superioridade numérica no setor ofensivo.", "Alterne o ritmo do jogo com passes curtos e longos."],
+            defensive: ["Mantenha a compactação da linha de 4 no meio. Não dê espaços entre você e seus companheiros.", "Dobre a marcação nos pontas adversários para ajudar seu lateral.", "Feche a linha de passe por dentro, forçando o adversário para as laterais."]
+        },
+        'Defensor': {
+            offensive: ["Seja uma opção de passe para sair da pressão. Avance com a bola apenas se houver espaço.", "Laterais: deem amplitude ao time, mas subam de forma alternada.", "Zagueiros: acertem o passe longo para o atacante que ataca o espaço."],
+            defensive: ["Mantenha a linha defensiva alta e compacta. Comunique-se constantemente.", "Laterais: cuidado com as bolas nas suas costas. A cobertura do meia é fundamental.", "Zagueiros: atenção na marcação do seu atacante de referência e na cobertura do companheiro."]
+        },
+        'Goleiro': {
+            offensive: ["Reponha a bola rapidamente para os meias laterais, iniciando o contra-ataque.", "Seja uma opção de recuo segura para os zagueiros."],
+            defensive: ["Comande a linha de 4. Sua visão é privilegiada para corrigir o posicionamento.", "Organize a barreira e a marcação nas bolas paradas."]
+        }
+    },
+    '4-3-3': {
+        'Atacante': {
+            offensive: ["Pontas: cortem para dentro para finalizar ou busquem a linha de fundo para cruzar. Centroavante: seja a referência na área.", "A movimentação do trio de ataque é a chave. Troquem de posição para confundir a zaga.", "Pressione alto. A perda da posse deve ser seguida de uma tentativa imediata de recuperação."],
+            defensive: ["Sua função defensiva é crucial. Feche os laterais adversários e force-os a voltar o jogo.", "Direcione a pressão para forçar o adversário a errar o passe.", "Recomponha rapidamente para formar uma linha de 5 no meio-campo quando necessário."]
+        },
+        'Meio-campista': {
+            offensive: ["O volante dá o equilíbrio. Os dois meias têm liberdade para se aproximar do ataque.", "Busque passes em profundidade para os pontas nas costas da zaga.", "Um dos meias deve sempre se apresentar como opção de finalização na entrada da área."],
+            defensive: ["O trio do meio precisa cobrir uma grande faixa do campo. A basculação precisa ser perfeita.", "Cuidado com o espaço entre a linha de meio e a de defesa.", "O volante é a proteção da zaga. Não suba ao mesmo tempo que os outros meias."]
+        },
+        'Defensor': {
+            offensive: ["Laterais: apoiem com consistência, já que os pontas abrem o campo para vocês.", "Zagueiros: tenham qualidade no passe para iniciar a construção desde trás.", "Aproveitem a bola parada ofensiva; o time tem presença de área."],
+            defensive: ["Com os laterais subindo, os zagueiros ficam mais expostos. A cobertura precisa ser rápida.", "Atenção máxima nos contra-ataques, principalmente nas costas dos laterais.", "Comunicação para manter a linha defensiva organizada e evitar o mano a mano."]
+        },
+        'Goleiro': {
+            offensive: ["Seja rápido na reposição para aproveitar os pontas velocistas.", "Use os pés para ser o primeiro homem na construção da jogada."],
+            defensive: ["Atue como um 'líbero' para cobrir as bolas longas nas costas da sua zaga.", "Fale o tempo todo. A defesa em um 4-3-3 depende de organização verbal."]
+        }
+    },
+    '3-5-2': {
+        'Atacante': {
+            offensive: ["Trabalhe em conjunto. Um ataca o espaço enquanto o outro busca a bola no pé.", "Faça o pivô para a chegada dos alas e do meia de ligação.", "Movimente-se para os lados para abrir espaços no centro da defesa adversária."],
+            defensive: ["Sejam os primeiros a pressionar, direcionando a saída de bola adversária para onde o time tem mais gente.", "Fechem a linha de passe para os zagueiros e volantes adversários."]
+        },
+        'Meio-campista': {
+            offensive: ["Alas: vocês são a alma do time. Ataquem com profundidade e cruzem com qualidade.", "Meia de ligação: flutue entre as linhas adversárias e distribua o jogo.", "Volantes: deem o suporte defensivo e iniciem as jogadas com passes precisos."],
+            defensive: ["Alas: sua recomposição é a chave para a defesa não sofrer. Voltem na linha da defesa se necessário.", "Volantes: protejam a entrada da área e cubram os espaços deixados pelos alas.", "Fechem o meio. Com 5 no setor, o adversário não pode ter espaço para pensar."]
+        },
+        'Defensor': {
+            offensive: ["O zagueiro do centro pode, ocasionalmente, conduzir a bola para quebrar a primeira linha de marcação.", "Zagueiros laterais: cubram os alas quando eles subirem."],
+            defensive: ["A linha de 3 precisa ser muito bem coordenada. Cuidado com as bolas entre os zagueiros.", "Estejam preparados para cobrir os lados do campo, pois os alas podem demorar a recompor.", "Comunicação é vital para decidir quem sai para o combate e quem fica na sobra."]
+        },
+        'Goleiro': {
+            offensive: ["Procure os alas com lançamentos longos para pegar o adversário de surpresa.", "Aja como opção de passe para desafogar a defesa."],
+            defensive: ["Organize a defesa de 3 homens, indicando quem deve pressionar e quem deve cobrir.", "Esteja atento às saídas do gol para interceptar bolas nas costas da zaga."]
+        }
+    },
+    // ... Simplified entries for other formations to save space
+    '4-2-3-1': {
+        'Atacante': {
+            offensive: ["Seja o ponto de referência, segure os zagueiros e abra espaço para o meia-atacante.", "Pressione a saída de bola para forçar o erro."],
+            defensive: ["Feche a linha de passe para os zagueiros, impedindo a construção do jogo adversário."]
+        },
+        'Meio-campista': {
+            offensive: ["Meia-atacante (10): você é o cérebro. Flutue, encontre passes e finalize.", "Pontas: usem a velocidade para o 1x1. Volantes: um protege, o outro apoia."],
+            defensive: ["Volantes: protejam a frente da área. Meias: recomponham para criar duas linhas de 4 sem a bola."]
+        },
+        'Defensor': {
+            offensive: ["Laterais: subam com inteligência, aproveitando que os pontas criam espaço.", "Zagueiros: iniciem o jogo com passes seguros para os volantes."],
+            defensive: ["Mantenham a linha de 4 compacta. Comuniquem-se para cobrir os espaços.", "Cuidado com a transição defensiva quando os laterais estão no ataque."]
+        },
+        'Goleiro': {
+            offensive: ["Busque o meia-atacante ou os pontas com reposições rápidas.", "Seja uma opção de passe para os volantes."],
+            defensive: ["Organize a defesa e os volantes. Sua visão de trás é fundamental.", "Esteja pronto para saídas corajosas."]
+        }
+    },
+    '2-3-1': {
+        'Atacante': {
+            offensive: ["Faça o pivô. Segure a bola e espere a chegada dos meias.", "Movimente-se para criar linhas de passe para o meia-atacante."],
+            defensive: ["Pressione o zagueiro com a bola, dificultando a saída."]
+        },
+        'Meio-campista': {
+            offensive: ["Meia-atacante: seja criativo, drible, passe e chute.", "Alas: deem amplitude e profundidade. Cheguem na área para finalizar."],
+            defensive: ["Volante: você é o escudo da zaga. Fique posicionado.", "Alas: voltem para ajudar os zagueiros. Sem a bola, o time defende com 4."]
+        },
+        'Defensor': {
+            offensive: ["Não se arrisquem muito. O passe seguro para o volante é a melhor opção.", "Subam apenas em situações claras de superioridade."],
+            defensive: ["Fiquem atentos, pois vocês estarão no mano a mano com frequência.", "Comunicação é chave para a cobertura mútua."]
+        },
+        'Goleiro': {
+            offensive: ["Procure os alas ou o atacante com lançamentos rápidos.", "Seja o ponto de segurança para a defesa."],
+            defensive: ["Organize a defesa e o volante. Fale alto e com clareza.", "Esteja preparado para chutes de longa distância."]
+        }
+    },
+    '3-2-1': {
+        'Atacante': {
+            offensive: ["Lute sozinho contra a defesa. Segure a bola até o time chegar.", "Seja oportunista. Cada chance é valiosa."],
+            defensive: ["Pressione a saída de bola para retardar o ataque adversário."]
+        },
+        'Meio-campista': {
+            offensive: ["Sejam os pulmões do time. Liguem a defesa ao ataque.", "Infiltrem na área como elemento surpresa. Chutem de fora."],
+            defensive: ["Fechem o meio e ajudem a proteger os espaços nas laterais.", "Trabalhem juntos para formar uma barreira à frente da defesa."]
+        },
+        'Defensor': {
+            offensive: ["Os zagueiros laterais podem apoiar como alas, mas com cautela.", "O zagueiro central é o líder da construção."],
+            defensive: ["Comunicação constante para manter a linha de 3 compacta.", "Não permitam que o adversário jogue entre vocês."]
+        },
+        'Goleiro': {
+            offensive: ["Use a reposição como uma arma para iniciar o ataque.", "Seja uma válvula de escape para os zagueiros."],
+            defensive: ["Comande a linha de 3 e os dois meias à frente.", "Esteja preparado para defender chutes de todas as distâncias."]
+        }
+    },
+    '2-2-2': {
+        'Atacante': {
+            offensive: ["Trabalhem em dupla, um buscando espaço e o outro o passe.", "Movimentem-se para não ficarem na mesma linha."],
+            defensive: ["Pressionem os zagueiros adversários de forma coordenada."]
+        },
+        'Meio-campista': {
+            offensive: ["Conectem a defesa e o ataque com passes curtos e rápidos.", "Um sobe, o outro fica para dar equilíbrio."],
+            defensive: ["Mantenham a compactação. Não deixem espaço entre vocês.", "Ajudem os zagueiros e os atacantes na marcação."]
+        },
+        'Defensor': {
+            offensive: ["Iniciem o jogo com passes seguros para o meio-campo.", "Subam apenas quando tiverem certeza da cobertura."],
+            defensive: ["Trabalhem em uníssono. Se um sai para caçar, o outro cobre.", "Evitem o mano a mano e protejam a área."]
+        },
+        'Goleiro': {
+            offensive: ["Jogue curto com os zagueiros para iniciar a posse.", "Seja rápido na reposição para os atacantes."],
+            defensive: ["Organize as duas linhas de 2 à sua frente.", "Esteja atento aos chutes de média distância."]
+        }
+    },
+    '2-2': {
+        'Atacante': { // No futsal, chamados de Alas/Pivô
+            offensive: ["Movimentem-se constantemente. O rodízio é a chave para abrir espaços.", "Busquem tabelas e jogadas de um-dois."],
+            defensive: ["Sejam a primeira linha de defesa, pressionando a saída de bola adversária."]
+        },
+        'Meio-campista': { // Não se aplica, usamos Fixo
+            offensive: [""],
+            defensive: [""]
+        },
+        'Defensor': { // No futsal, chamados de Fixos
+            offensive: ["Subam para o ataque como surpresa, mas garantam que alguém faça a cobertura.", "Tenham qualidade no passe para armar o jogo."],
+            defensive: ["Sejam a base da defesa. Comuniquem-se para cobrir um ao outro.", "Não deem botes desnecessários; cerquem o adversário."]
+        },
+        'Goleiro': {
+            offensive: ["Atue como um 'goleiro-linha' quando o time precisar, sendo uma opção de passe a mais.", "Lance a bola rapidamente para os alas em contra-ataques."],
+            defensive: ["Organize a defesa 'quadrada' e feche o gol nos chutes.", "Esteja preparado para defender com os pés."]
+        }
+    },
+    '3-1': {
+        'Atacante': { // Pivô
+            offensive: ["Você é a referência. Segure a bola de costas, proteja e espere a chegada dos alas.", "Faça o pivô e role a bola para quem vem de frente para finalizar."],
+            defensive: ["Pressione o fixo adversário, dificultando a armação das jogadas."]
+        },
+        'Meio-campista': { // Alas
+            offensive: ["Ataquem o espaço quando o pivô receber a bola. Infiltrem em diagonal.", "Sejam a opção de passe para o pivô. Chutem de média distância."],
+            defensive: ["Recomponham rapidamente para formar uma linha de 3 com o fixo.", "Marquem os alas adversários individualmente."]
+        },
+        'Defensor': { // Fixo
+            offensive: ["Seja o armador do time, iniciando as jogadas com passes precisos para os alas ou o pivô.", "Avance com cautela para não desguarnecer a defesa."],
+            defensive: ["Você é o último homem. Comande a defesa e faça a cobertura dos alas.", "Seja implacável no desarme, mas evite faltas."]
+        },
+        'Goleiro': {
+            offensive: ["Procure o pivô com lançamentos diretos e precisos.", "Jogue com os pés para ajudar na saída de bola."],
+            defensive: ["Organize a defesa e fique atento às infiltrações dos alas adversários.", "Feche bem o ângulo contra o pivô."]
+        }
+    },
+    '1-2-1': {
+        'Atacante': { // Pivô
+            offensive: ["Movimente-se para abrir espaços e ser opção de passe. Não fique parado.", "Finalize rápido assim que receber a bola em condição."],
+            defensive: ["Pressione o jogador que inicia a jogada adversária."]
+        },
+        'Meio-campista': { // Alas
+            offensive: ["Sejam a principal válvula de escape do time. Usem a velocidade.", "Busquem tabelas com o fixo e o pivô. Chutem de fora."],
+            defensive: ["Fechem as laterais da quadra e ajudem o fixo na marcação.", "Recomponham com velocidade máxima."]
+        },
+        'Defensor': { // Fixo
+            offensive: ["Você é o equilíbrio do time. Dê qualidade ao passe e comande o ritmo.", "Apoie o ataque, mas seja o primeiro a voltar."],
+            defensive: ["Seja o cão de guarda da defesa. Intercepte passes e faça desarmes.", "Organize a marcação do losango."]
+        },
+        'Goleiro': {
+            offensive: ["Participe ativamente da construção do jogo com passes precisos.", "Busque os alas em velocidade para o contra-ataque."],
+            defensive: ["Sua comunicação é vital para o sistema de losango funcionar.", "Esteja preparado para defender em situações de 1 contra 1."]
+        }
+    }
+};
+
+// --- Player Tactic Getter Function ---
+export function getPlayerTactic(formation: string, type: 'offensive' | 'defensive', position: Player['position']): string {
+    const formationTactics = playerTacticsByFormation[formation];
+    
+    if (!formationTactics) {
+        return "Instrução tática não disponível para esta formação.";
+    }
+
+    // Adapt position for Futsal inside the function
+    let tacticalPosition = position;
+    if (['2-2', '3-1', '1-2-1'].includes(formation)) {
+        if (position === 'Meio-campista') tacticalPosition = 'Atacante'; // Treat midfielders as attackers (alas) in futsal
+    }
+
+    const positionTactics = formationTactics[tacticalPosition];
+
+    if (!positionTactics || !positionTactics[type] || positionTactics[type].length === 0) {
+        // Fallback for generic positions if specific one is missing (e.g., Meio-campista in 2-2)
+         const genericTactics = playerTacticsByFormation['4-4-2'][position]?.[type];
+         if (genericTactics && genericTactics.length > 0) return pickRandom(genericTactics);
+         return "Seja versátil e adapte-se às necessidades do jogo.";
+    }
+
+    return pickRandom(positionTactics[type]);
+}

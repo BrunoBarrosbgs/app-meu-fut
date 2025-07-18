@@ -1,0 +1,310 @@
+'use client';
+
+import { useState, type ChangeEvent, useEffect, useMemo } from "react";
+import type { Player } from "@/lib/types";
+import { Header } from "@/components/dashboard/header";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription as AlertDialogDescriptionComponent, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle as AlertDialogTitleComponent, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { PlusCircle, Trash2 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { PlayerCollectibleCard } from "../stats/player-collectible-card";
+import { Card } from "@/components/ui/card";
+import { players as initialPlayers } from "@/lib/mock-data";
+import { useAuth } from "@/hooks/use-auth";
+
+
+const initialNewPlayerState = {
+  name: '',
+  shirtNumber: '',
+  position: '',
+  avatar: null as File | null,
+  avatarUrl: '',
+};
+
+export default function SquadClient() {
+  const { toast } = useToast();
+  const { auth } = useAuth();
+  const [squad, setSquad] = useState<Player[]>([]);
+  const [isAddDialogOpen, setAddDialogOpen] = useState(false);
+  const [newPlayer, setNewPlayer] = useState(initialNewPlayerState);
+  const [selectedPlayerForView, setSelectedPlayerForView] = useState<Player | null>(null);
+
+  const teamId = auth.teamId;
+  const PLAYERS_STORAGE_KEY = useMemo(() => teamId ? `${teamId}_players` : null, [teamId]);
+
+  useEffect(() => {
+    if (!PLAYERS_STORAGE_KEY) return;
+
+    const loadPlayers = () => {
+      try {
+        const storedPlayers = localStorage.getItem(PLAYERS_STORAGE_KEY);
+        if (storedPlayers) {
+          setSquad(JSON.parse(storedPlayers));
+        } else {
+          localStorage.setItem(PLAYERS_STORAGE_KEY, JSON.stringify(initialPlayers));
+          setSquad(initialPlayers);
+        }
+      } catch (error) {
+        console.error("Failed to load players from localStorage", error);
+        setSquad(initialPlayers);
+      }
+    };
+    
+    loadPlayers();
+    
+    const handleTeamDataUpdate = (event: Event) => {
+      const customEvent = event as CustomEvent;
+      if (customEvent.detail.teamId === teamId) {
+        loadPlayers();
+      }
+    };
+
+    window.addEventListener('teamDataUpdated', handleTeamDataUpdate);
+    return () => {
+        window.removeEventListener('teamDataUpdated', handleTeamDataUpdate);
+    }
+  }, [PLAYERS_STORAGE_KEY, teamId]);
+
+  const saveAndBroadcastPlayers = (updatedSquad: Player[]) => {
+    if (!PLAYERS_STORAGE_KEY) return;
+    localStorage.setItem(PLAYERS_STORAGE_KEY, JSON.stringify(updatedSquad));
+    setSquad(updatedSquad);
+    window.dispatchEvent(new CustomEvent('teamDataUpdated', { detail: { teamId } }));
+  };
+
+  const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const { id, value } = e.target;
+    setNewPlayer(prev => ({ ...prev, [id]: value }));
+  };
+
+  const handlePositionChange = (value: string) => {
+    setNewPlayer(prev => ({ ...prev, position: value as Player['position'] }));
+  };
+
+  const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setNewPlayer(prev => ({
+          ...prev,
+          avatar: file,
+          avatarUrl: reader.result as string,
+        }));
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleAddPlayer = () => {
+    const { name, shirtNumber, position, avatarUrl } = newPlayer;
+    if (!name || !shirtNumber || !position) {
+      toast({
+        variant: "destructive",
+        title: "Campos obrigatórios",
+        description: "Preencha nome, número e posição.",
+      });
+      return;
+    }
+
+    const newPlayerEntry: Player = {
+      id: Date.now(),
+      name,
+      shirtNumber: parseInt(shirtNumber, 10),
+      position: position as Player['position'],
+      avatarUrl: avatarUrl || 'https://placehold.co/400x533.png',
+      gamesPlayed: 0,
+      goals: 0,
+      assists: 0,
+      credits: 0,
+      attendances: 0,
+      absences: 0,
+      totalWinnings: 0,
+      manOfTheMatchAwards: 0,
+    };
+    
+    const updatedSquad = [...squad, newPlayerEntry];
+    saveAndBroadcastPlayers(updatedSquad);
+
+    toast({
+      title: "Jogador Adicionado!",
+      description: `${name} agora faz parte do elenco.`,
+    });
+    
+    closeDialogAndReset();
+  };
+  
+  const handleDeletePlayer = (playerId: number) => {
+    const updatedSquad = squad.filter(player => player.id !== playerId);
+    saveAndBroadcastPlayers(updatedSquad);
+    toast({
+      title: "Jogador Removido",
+      description: "O jogador foi removido do elenco.",
+    });
+  };
+
+  const closeDialogAndReset = () => {
+      setAddDialogOpen(false);
+      setNewPlayer(initialNewPlayerState);
+  }
+
+  const handlePlayerClick = (player: Player) => {
+    setSelectedPlayerForView(player);
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between">
+        <Header title="Elenco" pageContext="squad" />
+        <Dialog open={isAddDialogOpen} onOpenChange={setAddDialogOpen}>
+          <DialogTrigger asChild>
+            <Button className="gap-2" onClick={() => setAddDialogOpen(true)}>
+              <PlusCircle size={18} />
+              Adicionar Jogador
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+                <DialogTitle>Adicionar Novo Jogador</DialogTitle>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="grid gap-2">
+                <Label htmlFor="name">Nome</Label>
+                <Input id="name" placeholder="Nome do jogador" value={newPlayer.name} onChange={handleInputChange} />
+              </div>
+               <div className="grid gap-2">
+                <Label htmlFor="shirtNumber">Número da Camisa</Label>
+                <Input id="shirtNumber" type="number" placeholder="Ex: 10" value={newPlayer.shirtNumber} onChange={handleInputChange} />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="position">Posição</Label>
+                <Select onValueChange={handlePositionChange} value={newPlayer.position}>
+                  <SelectTrigger id="position">
+                    <SelectValue placeholder="Selecione a posição" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Goleiro">Goleiro</SelectItem>
+                    <SelectItem value="Defensor">Defensor</SelectItem>
+                    <SelectItem value="Meio-campista">Meio-campista</SelectItem>
+                    <SelectItem value="Atacante">Atacante</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="avatar">Foto do Jogador</Label>
+                <Input id="avatar" type="file" accept="image/*" onChange={handleFileChange} />
+                {newPlayer.avatarUrl && (
+                  <div className="mt-2 flex justify-center">
+                    <Avatar className="h-24 w-24">
+                      <AvatarImage src={newPlayer.avatarUrl} alt="Pré-visualização do avatar" />
+                      <AvatarFallback>??</AvatarFallback>
+                    </Avatar>
+                  </div>
+                )}
+              </div>
+            </div>
+            <DialogFooter>
+                <Button variant="outline" onClick={closeDialogAndReset}>Cancelar</Button>
+                <Button onClick={handleAddPlayer}>
+                    Adicionar Jogador
+                </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+
+      <Dialog open={!!selectedPlayerForView} onOpenChange={(open) => !open && setSelectedPlayerForView(null)}>
+        <DialogContent className="max-w-sm p-0 border-none bg-transparent shadow-none">
+          {selectedPlayerForView && (
+            <>
+              <DialogHeader className="sr-only">
+                <DialogTitle>{`Detalhes de ${selectedPlayerForView.name}`}</DialogTitle>
+                <DialogDescription>
+                  Card colecionável com as estatísticas do jogador.
+                </DialogDescription>
+              </DialogHeader>
+              <PlayerCollectibleCard player={selectedPlayerForView} />
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Card>
+        <Table>
+          <TableHeader>
+            <TableRow className="hover:bg-transparent">
+              <TableHead>Jogador</TableHead>
+              <TableHead>Posição</TableHead>
+              <TableHead className="text-center">N°</TableHead>
+              <TableHead className="text-center">Jogos</TableHead>
+              <TableHead className="text-center">Gols</TableHead>
+              <TableHead className="text-center">Presenças</TableHead>
+              <TableHead className="text-center">Faltas</TableHead>
+              <TableHead className="text-right">Ações</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {squad.map((player) => (
+              <TableRow key={player.id} className="group">
+                <TableCell onClick={() => handlePlayerClick(player)} className="cursor-pointer">
+                  <div className="flex items-center gap-3">
+                    <Avatar>
+                      <AvatarImage src={player.avatarUrl} alt={player.name} data-ai-hint="player photo" />
+                      <AvatarFallback>{player.name.charAt(0)}</AvatarFallback>
+                    </Avatar>
+                    <span className="font-medium">{player.name}</span>
+                  </div>
+                </TableCell>
+                <TableCell onClick={() => handlePlayerClick(player)} className="cursor-pointer">
+                    <Badge variant="outline" className="border-primary/50 text-primary">{player.position}</Badge>
+                </TableCell>
+                <TableCell onClick={() => handlePlayerClick(player)} className="cursor-pointer text-center font-mono font-bold">{player.shirtNumber}</TableCell>
+                <TableCell onClick={() => handlePlayerClick(player)} className="cursor-pointer text-center font-mono">{player.gamesPlayed}</TableCell>
+                <TableCell onClick={() => handlePlayerClick(player)} className="cursor-pointer text-center font-mono">{player.goals}</TableCell>
+                <TableCell onClick={() => handlePlayerClick(player)} className="cursor-pointer text-center font-mono text-green-400">{player.attendances || 0}</TableCell>
+                <TableCell onClick={() => handlePlayerClick(player)} className="cursor-pointer text-center font-mono text-red-400">{player.absences || 0}</TableCell>
+                <TableCell className="text-right">
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitleComponent>Você tem certeza?</AlertDialogTitleComponent>
+                        <AlertDialogDescriptionComponent>
+                          Esta ação não pode ser desfeita. Isso irá remover permanentemente o jogador <strong>{player.name}</strong> do elenco.
+                        </AlertDialogDescriptionComponent>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => handleDeletePlayer(player.id)} className="bg-destructive hover:bg-destructive/90">
+                          Sim, excluir jogador
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </Card>
+    </div>
+  );
+}

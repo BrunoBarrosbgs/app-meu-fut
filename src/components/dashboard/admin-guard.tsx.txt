@@ -1,0 +1,44 @@
+
+'use client';
+
+import { useAuth } from '@/hooks/use-auth';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Header } from '@/components/dashboard/header';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { ShieldAlert } from 'lucide-react';
+import Link from 'next/link';
+
+export function AdminGuard({ children }: { children: React.ReactNode }) {
+  const { auth, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div>
+        <Header title="Carregando..." />
+        <div className="space-y-4">
+          <Skeleton className="h-32 w-full" />
+          <Skeleton className="h-64 w-full" />
+        </div>
+      </div>
+    );
+  }
+
+  if (auth.role !== 'admin') {
+    return (
+        <Card className="max-w-md mx-auto mt-10">
+            <CardHeader className="text-center">
+                <ShieldAlert className="h-12 w-12 mx-auto text-destructive" />
+                <CardTitle className="mt-4">Acesso Restrito</CardTitle>
+            </CardHeader>
+            <CardContent className="text-center">
+                <p className="text-muted-foreground">Esta página é exclusiva para administradores.</p>
+                <Link href="/dashboard" className="text-primary hover:underline mt-4 inline-block">
+                    Voltar para o Painel
+                </Link>
+            </CardContent>
+        </Card>
+    )
+  }
+
+  return <>{children}</>;
+}

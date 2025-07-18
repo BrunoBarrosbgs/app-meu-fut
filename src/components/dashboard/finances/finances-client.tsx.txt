@@ -1,0 +1,204 @@
+
+'use client';
+
+import { Header } from "@/components/dashboard/header";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { useAuth } from "@/hooks/use-auth";
+import type { FinancialTransaction } from "@/lib/types";
+import { useEffect, useState, useMemo } from "react";
+import { ArrowDown, ArrowUp, Landmark, DollarSign, PlusCircle, MinusCircle } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose, DialogDescription } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { useToast } from "@/hooks/use-toast";
+import { Textarea } from "@/components/ui/textarea";
+
+interface FinancesClientProps {
+    initialBalance: number;
+    initialTransactions: FinancialTransaction[];
+}
+
+export default function FinancesClient({ initialBalance, initialTransactions }: FinancesClientProps) {
+    const { auth } = useAuth();
+    const { toast } = useToast();
+
+    const [balance, setBalance] = useState(initialBalance);
+    const [transactions, setTransactions] = useState(initialTransactions);
+    const [isDepositOpen, setDepositOpen] = useState(false);
+    const [isWithdrawalOpen, setWithdrawalOpen] = useState(false);
+    const [transactionAmount, setTransactionAmount] = useState('');
+    const [transactionDescription, setTransactionDescription] = useState('');
+
+    const teamId = auth.teamId;
+
+    const storageKeys = useMemo(() => {
+      if (!teamId) return null;
+      return {
+        balance: `${teamId}_clubBalance`,
+        transactions: `${teamId}_clubTransactions`,
+      };
+    }, [teamId]);
+
+    useEffect(() => {
+      if (!storageKeys) return;
+
+        const updateFinances = () => {
+            const storedBalance = localStorage.getItem(storageKeys.balance);
+            const storedTransactions = localStorage.getItem(storageKeys.transactions);
+            
+            setBalance(storedBalance ? parseFloat(storedBalance) : initialBalance);
+            setTransactions(storedTransactions ? JSON.parse(storedTransactions) : initialTransactions);
+        };
+
+        updateFinances();
+        
+        const handleDataUpdate = (event: Event) => {
+            const customEvent = event as CustomEvent;
+            if (customEvent.detail.teamId === teamId) {
+                updateFinances();
+            }
+        };
+
+        window.addEventListener('teamDataUpdated', handleDataUpdate);
+        return () => {
+            window.removeEventListener('teamDataUpdated', handleDataUpdate);
+        }
+    }, [storageKeys, initialBalance, initialTransactions, teamId]);
+
+    const resetForm = () => {
+        setTransactionAmount('');
+        setTransactionDescription('');
+    };
+
+    const handleTransaction = (type: 'deposit' | 'withdrawal') => {
+        if (!storageKeys) return;
+        const amount = parseFloat(transactionAmount);
+        if (isNaN(amount) || amount <= 0 || !transactionDescription) {
+            toast({
+                variant: 'destructive',
+                title: 'Dados inválidos',
+                description: 'Por favor, preencha o valor e a descrição corretamente.'
+            });
+            return;
+        }
+
+        const newBalance = type === 'deposit' ? balance + amount : balance - amount;
+        const newTransaction: FinancialTransaction = {
+            id: Date.now(),
+            type: type,
+            amount: type === 'deposit' ? amount : -amount,
+            description: transactionDescription,
+            date: new Date().toISOString().split('T')[0],
+        };
+
+        const newTransactions = [newTransaction, ...transactions];
+
+        setBalance(newBalance);
+        setTransactions(newTransactions);
+        localStorage.setItem(storageKeys.balance, newBalance.toString());
+        localStorage.setItem(storageKeys.transactions, JSON.stringify(newTransactions));
+
+        window.dispatchEvent(new CustomEvent('teamDataUpdated', { detail: { teamId } }));
+
+        toast({
+            title: `Transação realizada com sucesso!`,
+            description: `${type === 'deposit' ? 'Depósito' : 'Retirada'} de R$ ${amount.toFixed(2)} registrado.`,
+        });
+
+        resetForm();
+        if (type === 'deposit') setDepositOpen(false);
+        else setWithdrawalOpen(false);
+    };
+
+    return (
+        <div>
+            <Header title="Caixa do Clube" pageContext="finances" />
+            
+            <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3">
+                <Card className="lg:col-span-3">
+                    <CardHeader className="flex flex-row items-center justify-between">
+                        <div>
+                            <CardTitle className="text-muted-foreground">Saldo Atual</CardTitle>
+                            <p className="font-headline text-5xl text-glow mt-2">R$ {balance.toFixed(2)}</p>
+                        </div>
+                        <Landmark className="h-16 w-16 text-primary/50" />
+                    </CardHeader>
+                    {auth.role === 'admin' && (
+                        <CardFooter className="gap-4">
+                             <Dialog open={isDepositOpen} onOpenChange={(isOpen) => { setDepositOpen(isOpen); if(!isOpen) resetForm(); }}>
+                                <DialogTrigger asChild><Button className="gap-2"><PlusCircle /> Adicionar Fundos</Button></DialogTrigger>
+                                <DialogContent>
+                                    <DialogHeader>
+                                        <DialogTitle>Adicionar Fundos ao Caixa</DialogTitle>
+                                        <DialogDescription>Insira o valor e a descrição para o novo depósito.</DialogDescription>
+                                    </DialogHeader>
+                                    <div className="space-y-4 py-4">
+                                        <div><Label htmlFor="deposit-amount">Valor (R$)</Label><Input id="deposit-amount" type="number" placeholder="100.00" value={transactionAmount} onChange={e => setTransactionAmount(e.target.value)} /></div>
+                                        <div><Label htmlFor="deposit-desc">Descrição</Label><Textarea id="deposit-desc" placeholder="Ex: Patrocínio, Doação..." value={transactionDescription} onChange={e => setTransactionDescription(e.target.value)} /></div>
+                                    </div>
+                                    <DialogFooter>
+                                        <DialogClose asChild><Button type="button" variant="outline">Cancelar</Button></DialogClose>
+                                        <Button onClick={() => handleTransaction('deposit')}>Confirmar Depósito</Button>
+                                    </DialogFooter>
+                                </DialogContent>
+                            </Dialog>
+                             <Dialog open={isWithdrawalOpen} onOpenChange={(isOpen) => { setWithdrawalOpen(isOpen); if(!isOpen) resetForm(); }}>
+                                <DialogTrigger asChild><Button variant="destructive" className="gap-2"><MinusCircle /> Retirar Fundos</Button></DialogTrigger>
+                                <DialogContent>
+                                    <DialogHeader>
+                                        <DialogTitle>Retirar Fundos do Caixa</DialogTitle>
+                                        <DialogDescription>Insira o valor e a descrição para a nova retirada.</DialogDescription>
+                                    </DialogHeader>
+                                     <div className="space-y-4 py-4">
+                                        <div><Label htmlFor="withdrawal-amount">Valor (R$)</Label><Input id="withdrawal-amount" type="number" placeholder="50.00" value={transactionAmount} onChange={e => setTransactionAmount(e.target.value)} /></div>
+                                        <div><Label htmlFor="withdrawal-desc">Descrição</Label><Textarea id="withdrawal-desc" placeholder="Ex: Compra de bolas, Pagamento de campo" value={transactionDescription} onChange={e => setTransactionDescription(e.target.value)} /></div>
+                                    </div>
+                                    <DialogFooter>
+                                        <DialogClose asChild><Button type="button" variant="outline">Cancelar</Button></DialogClose>
+                                        <Button onClick={() => handleTransaction('withdrawal')} variant="destructive">Confirmar Retirada</Button>
+                                    </DialogFooter>
+                                </DialogContent>
+                            </Dialog>
+                        </CardFooter>
+                    )}
+                </Card>
+            </div>
+
+            <Card className="mt-8">
+                <CardHeader>
+                    <CardTitle>Histórico de Transações</CardTitle>
+                    <CardDescription>Últimas movimentações financeiras do clube.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>Descrição</TableHead>
+                                <TableHead>Data</TableHead>
+                                <TableHead className="text-right">Valor</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {transactions.map(t => (
+                                <TableRow key={t.id}>
+                                    <TableCell className="font-medium flex items-center gap-3">
+                                        {t.type === 'bet_cut' ? <DollarSign size={16} className="text-primary" /> : t.amount > 0 ? <ArrowUp size={16} className="text-green-500" /> : <ArrowDown size={16} className="text-red-500" />}
+                                        {t.description}
+                                    </TableCell>
+                                    <TableCell className="text-muted-foreground">{new Date(t.date).toLocaleDateString('pt-BR')}</TableCell>
+                                    <TableCell className={cn("text-right font-mono font-bold", t.amount > 0 ? 'text-green-400' : 'text-red-400')}>
+                                        R$ {t.amount.toFixed(2)}
+                                    </TableCell>
+                                </TableRow>
+                            ))}
+                        </TableBody>
+                    </Table>
+                </CardContent>
+            </Card>
+
+        </div>
+    );
+}

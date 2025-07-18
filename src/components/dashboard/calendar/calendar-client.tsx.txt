@@ -1,0 +1,149 @@
+
+'use client';
+
+import { useState, useMemo, useEffect } from "react";
+import type { Match, Player } from "@/lib/types";
+import { Header } from "@/components/dashboard/header";
+import { Calendar } from "@/components/ui/calendar";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { matches as allMatches } from "@/lib/mock-data";
+import { format } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
+import { Swords, Dumbbell, Calendar as CalendarIcon, Trophy, CheckCircle, Clock, MapPin, Hourglass } from "lucide-react";
+import { MatchDetailViewer } from "./match-detail-viewer";
+
+interface CalendarClientProps {
+    matches: Match[];
+    players: Player[];
+}
+
+export default function CalendarClient({ matches: initialMatches, players }: CalendarClientProps) {
+    const [matches, setMatches] = useState(initialMatches);
+    const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
+    const [selectedMatch, setSelectedMatch] = useState<Match | null>(null);
+
+    useEffect(() => {
+        const handleMatchesUpdate = () => {
+            setMatches([...allMatches]);
+        };
+        handleMatchesUpdate();
+
+        window.addEventListener('matchesUpdated', handleMatchesUpdate);
+        return () => {
+            window.removeEventListener('matchesUpdated', handleMatchesUpdate);
+        };
+    }, []);
+
+    const eventDays = useMemo(() => {
+        return matches.map(match => new Date(match.date));
+    }, [matches]);
+
+    const eventsByDate = useMemo(() => {
+        const events = new Map<string, Match[]>();
+        matches.forEach(match => {
+            const dateStr = format(new Date(match.date), 'yyyy-MM-dd', { locale: ptBR });
+            if (!events.has(dateStr)) {
+                events.set(dateStr, []);
+            }
+            events.get(dateStr)?.push(match);
+        });
+        return events;
+    }, [matches]);
+
+    const eventsForSelectedDay = useMemo(() => {
+        if (!selectedDate) return [];
+        const dateStr = format(selectedDate, 'yyyy-MM-dd', { locale: ptBR });
+        const dayEvents = eventsByDate.get(dateStr) || [];
+        
+        const currentSelectionIsValid = dayEvents.some(e => e.id === selectedMatch?.id);
+        if (selectedMatch && !currentSelectionIsValid) {
+            setSelectedMatch(null);
+        }
+        
+        return dayEvents.sort((a, b) => a.time.localeCompare(b.time));
+    }, [selectedDate, eventsByDate, selectedMatch]);
+    
+    useEffect(() => {
+        if (eventsForSelectedDay.length === 1 && !selectedMatch) {
+            setSelectedMatch(eventsForSelectedDay[0]);
+        }
+    }, [eventsForSelectedDay, selectedMatch]);
+
+    const handleDayClick = (day: Date) => {
+        setSelectedDate(day);
+        setSelectedMatch(null); 
+    };
+
+    const EventIcon = ({ type }: { type: 'match' | 'training' }) => {
+        if (type === 'match') return <Swords className="h-4 w-4 text-primary" />;
+        return <Dumbbell className="h-4 w-4 text-blue-400" />;
+    };
+
+    return (
+        <div>
+            <Header title="Calendário de Eventos" pageContext="calendar" />
+
+            <div className="flex flex-col gap-8">
+                <Card>
+                    <CardContent className="p-2">
+                        <Calendar
+                            locale={ptBR}
+                            mode="single"
+                            selected={selectedDate}
+                            onSelect={handleDayClick}
+                            className="w-full"
+                            modifiers={{
+                                today: new Date(),
+                                event: eventDays
+                            }}
+                            modifiersClassNames={{
+                                today: 'bg-accent/80 text-accent-foreground',
+                                event: 'border-primary/50 border'
+                            }}
+                        />
+                    </CardContent>
+                </Card>
+
+                <Card>
+                    <CardHeader>
+                        <CardTitle>
+                            Eventos para {selectedDate ? format(selectedDate, 'dd/MM/yyyy') : '...'}
+                        </CardTitle>
+                        <CardDescription>
+                            Selecione um evento abaixo para ver os detalhes.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        {eventsForSelectedDay.length > 0 ? (
+                            eventsForSelectedDay.map(match => (
+                                <div 
+                                    key={match.id} 
+                                    className="p-3 rounded-lg border bg-muted/50 flex items-center justify-between cursor-pointer hover:border-primary/50 transition-colors"
+                                    onClick={() => setSelectedMatch(match)}
+                                >
+                                    <div className="flex items-center gap-3">
+                                        <EventIcon type={match.type} />
+                                        <div>
+                                            <p className="font-bold">
+                                                {match.type === 'training' ? match.opponent : `vs ${match.opponent}`}
+                                            </p>
+                                            <p className="text-xs text-muted-foreground">{match.time} - {match.location}</p>
+                                        </div>
+                                    </div>
+                                    {selectedMatch?.id === match.id && <CheckCircle className="h-5 w-5 text-primary" />}
+                                </div>
+                            ))
+                        ) : (
+                            <div className="text-muted-foreground text-sm text-center py-8 flex flex-col items-center gap-2">
+                                <CalendarIcon className="h-8 w-8" />
+                                <p>Nenhum evento para esta data.</p>
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+
+                {selectedMatch && <MatchDetailViewer match={selectedMatch} players={players} />}
+            </div>
+        </div>
+    );
+}

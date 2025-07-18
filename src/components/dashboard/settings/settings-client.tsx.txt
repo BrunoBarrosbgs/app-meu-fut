@@ -1,0 +1,348 @@
+
+'use client';
+
+import { Header } from "@/components/dashboard/header";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Upload, KeyRound, Eye, EyeOff, Trash2, DollarSign } from "lucide-react";
+import { ChangeEvent, useEffect, useState, useMemo } from "react";
+import { useToast } from "@/hooks/use-toast";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import type { Player } from "@/lib/types";
+import { players as initialPlayers } from "@/lib/mock-data";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { cn } from "@/lib/utils";
+import { useAuth } from "@/hooks/use-auth";
+
+const DEFAULT_TEAM_NAME = "Meu Fut";
+const DEFAULT_TEAM_LOGO = "";
+const DEFAULT_LEAGUE_NAME = "";
+const DEFAULT_BET_AMOUNT = "10";
+
+export default function SettingsClient() {
+  const { toast } = useToast();
+  const { auth } = useAuth();
+  
+  const [teamName, setTeamName] = useState(DEFAULT_TEAM_NAME);
+  const [logoUrl, setLogoUrl] = useState<string>(DEFAULT_TEAM_LOGO);
+  const [leagueName, setLeagueName] = useState(DEFAULT_LEAGUE_NAME);
+  const [defaultBetAmount, setDefaultBetAmount] = useState(DEFAULT_BET_AMOUNT);
+  
+  const [directorPassword, setDirectorPassword] = useState('');
+  const [playerPassword, setPlayerPassword] = useState('');
+  const [isDirectorPassVisible, setDirectorPassVisible] = useState(false);
+  const [isPlayerPassVisible, setPlayerPassVisible] = useState(false);
+
+  const [squad, setSquad] = useState<Player[]>([]);
+  const [playerCredits, setPlayerCredits] = useState<Record<number, string>>({});
+
+  const teamId = auth.teamId;
+
+  // Memoize storage keys to prevent re-renders
+  const storageKeys = useMemo(() => {
+    if (!teamId) return null;
+    return {
+      teamName: `${teamId}_teamName`,
+      teamLogo: `${teamId}_teamLogo`,
+      leagueName: `${teamId}_leagueName`,
+      defaultBetAmount: `${teamId}_defaultBetAmount`,
+      directorPassword: `${teamId}_director_password`,
+      playerPassword: `${teamId}_player_password`,
+      players: `${teamId}_players`,
+    };
+  }, [teamId]);
+
+  useEffect(() => {
+    if (!storageKeys) return;
+
+    const storedName = localStorage.getItem(storageKeys.teamName) || DEFAULT_TEAM_NAME;
+    const storedLogo = localStorage.getItem(storageKeys.teamLogo) || DEFAULT_TEAM_LOGO;
+    const storedLeague = localStorage.getItem(storageKeys.leagueName) || DEFAULT_LEAGUE_NAME;
+    const storedBetAmount = localStorage.getItem(storageKeys.defaultBetAmount) || DEFAULT_BET_AMOUNT;
+    const storedDirectorPass = localStorage.getItem(storageKeys.directorPassword) || '';
+    const storedPlayerPass = localStorage.getItem(storageKeys.playerPassword) || '';
+    
+    setTeamName(storedName);
+    setLogoUrl(storedLogo);
+    setLeagueName(storedLeague);
+    setDefaultBetAmount(storedBetAmount);
+    setDirectorPassword(storedDirectorPass);
+    setPlayerPassword(storedPlayerPass);
+
+    const loadPlayers = () => {
+      try {
+        const storedPlayers = localStorage.getItem(storageKeys.players);
+        const currentSquad = storedPlayers ? JSON.parse(storedPlayers) : initialPlayers;
+        setSquad(currentSquad);
+        const credits = currentSquad.reduce((acc: Record<number, string>, player: Player) => {
+          acc[player.id] = player.credits.toString();
+          return acc;
+        }, {});
+        setPlayerCredits(credits);
+      } catch (error) {
+        console.error("Failed to load players from localStorage", error);
+        setSquad(initialPlayers);
+      }
+    };
+    
+    loadPlayers();
+    window.addEventListener('playersUpdated', loadPlayers); // Note: This might need more specific event names if multiple teams are managed in the same session.
+    return () => {
+        window.removeEventListener('playersUpdated', loadPlayers);
+    }
+  }, [storageKeys]);
+
+  const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setLogoUrl(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+  
+  const handleCreditChange = (playerId: number, value: string) => {
+    setPlayerCredits(prev => ({...prev, [playerId]: value}));
+  };
+  
+  const applyCreditChanges = () => {
+    if (!storageKeys) return;
+    let updated = false;
+    const updatedSquad = squad.map(player => {
+        const newCreditValue = parseFloat(playerCredits[player.id]);
+        if (!isNaN(newCreditValue) && player.credits !== newCreditValue) {
+            updated = true;
+            return { ...player, credits: newCreditValue };
+        }
+        return player;
+    });
+
+    if (updated) {
+        saveAndBroadcastPlayers(updatedSquad);
+        toast({
+            title: "Créditos Atualizados!",
+            description: "O saldo de créditos dos jogadores foi salvo.",
+        });
+    } else {
+         toast({
+            variant: "default",
+            title: "Nenhuma alteração",
+            description: "Nenhum saldo de crédito foi modificado.",
+        });
+    }
+  };
+
+  const saveAndBroadcastPlayers = (updatedSquad: Player[]) => {
+    if (!storageKeys) return;
+    localStorage.setItem(storageKeys.players, JSON.stringify(updatedSquad));
+    setSquad(updatedSquad);
+    window.dispatchEvent(new CustomEvent('teamDataUpdated', { detail: { teamId } }));
+  };
+
+  const handleDeletePlayer = (playerId: number) => {
+    const updatedSquad = squad.filter(player => player.id !== playerId);
+    saveAndBroadcastPlayers(updatedSquad);
+    toast({
+      title: "Jogador Removido",
+      description: "O jogador foi removido do elenco.",
+    });
+  };
+
+  const handleSaveChanges = () => {
+    if (!storageKeys) return;
+    localStorage.setItem(storageKeys.teamName, teamName);
+    localStorage.setItem(storageKeys.teamLogo, logoUrl);
+    localStorage.setItem(storageKeys.leagueName, leagueName);
+    localStorage.setItem(storageKeys.defaultBetAmount, defaultBetAmount);
+
+    if (directorPassword) {
+      localStorage.setItem(storageKeys.directorPassword, directorPassword);
+    }
+    if (playerPassword) {
+      localStorage.setItem(storageKeys.playerPassword, playerPassword);
+    }
+
+    window.dispatchEvent(new CustomEvent('teamDataUpdated', { detail: { teamId } }));
+    
+    toast({
+      title: "Configurações Salvas!",
+      description: "As informações e senhas do time foram atualizadas.",
+    });
+  };
+
+  return (
+    <div>
+      <Header title="Configurações do Time" pageContext="settings" />
+
+      <div className="grid lg:grid-cols-2 gap-8">
+        <Card>
+          <CardHeader>
+            <CardTitle>Informações Gerais</CardTitle>
+            <CardDescription>Atualize o nome, logo e outras configurações do seu time.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="space-y-2">
+              <Label htmlFor="team-name">Nome do Time</Label>
+              <Input id="team-name" value={teamName} onChange={(e) => setTeamName(e.target.value)} />
+            </div>
+             <div className="space-y-2">
+              <Label htmlFor="league-name">Nome do Campeonato</Label>
+              <Input id="league-name" placeholder="Ex: Liga da Várzea 2024" value={leagueName} onChange={(e) => setLeagueName(e.target.value)} />
+            </div>
+             <div className="space-y-2">
+              <Label htmlFor="bet-amount">Valor Padrão da Aposta (R$)</Label>
+              <Input id="bet-amount" type="number" placeholder="Ex: 10.00" value={defaultBetAmount} onChange={(e) => setDefaultBetAmount(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>Logo do Time</Label>
+              <div className="flex items-center gap-4">
+                  <Avatar className="h-20 w-20">
+                      <AvatarImage src={logoUrl} alt="Logo do time" data-ai-hint="team logo" />
+                      <AvatarFallback>{teamName.slice(0, 2).toUpperCase()}</AvatarFallback>
+                  </Avatar>
+                  <Label htmlFor="logo-upload" className="flex items-center gap-2 text-primary cursor-pointer hover:underline">
+                      <Upload className="h-4 w-4" />
+                      <span>Alterar logo</span>
+                  </Label>
+                  <Input id="logo-upload" type="file" className="hidden" accept="image/*" onChange={handleFileChange} />
+              </div>
+              <p className="text-sm text-muted-foreground">Faça o upload de um novo logo. PNG, JPG ou SVG.</p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Segurança e Acesso</CardTitle>
+            <CardDescription>Altere as senhas de acesso. Deixe em branco para não alterar.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="space-y-2">
+                <Label htmlFor="director-password">Senha do Diretor</Label>
+                <div className="relative">
+                    <Input 
+                        id="director-password" 
+                        type={isDirectorPassVisible ? 'text' : 'password'}
+                        value={directorPassword}
+                        onChange={(e) => setDirectorPassword(e.target.value)}
+                        placeholder="Nova senha para diretores"
+                    />
+                    <button 
+                        type="button" 
+                        onClick={() => setDirectorPassVisible(!isDirectorPassVisible)} 
+                        className="absolute inset-y-0 right-0 flex items-center pr-3 text-muted-foreground"
+                    >
+                        {isDirectorPassVisible ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                </div>
+            </div>
+             <div className="space-y-2">
+                <Label htmlFor="player-password">Senha do Time (Jogadores)</Label>
+                 <div className="relative">
+                    <Input 
+                        id="player-password" 
+                        type={isPlayerPassVisible ? 'text' : 'password'}
+                        value={playerPassword}
+                        onChange={(e) => setPlayerPassword(e.target.value)}
+                        placeholder="Nova senha para jogadores"
+                    />
+                    <button 
+                        type="button" 
+                        onClick={() => setPlayerPassVisible(!isPlayerPassVisible)} 
+                        className="absolute inset-y-0 right-0 flex items-center pr-3 text-muted-foreground"
+                    >
+                        {isPlayerPassVisible ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+       <Card className="mt-8">
+          <CardHeader>
+            <CardTitle>Gerenciar Jogadores e Créditos</CardTitle>
+            <CardDescription>Remova jogadores ou atualize o saldo de créditos para apostas.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ScrollArea className="max-h-96">
+                <Table>
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead>Jogador</TableHead>
+                            <TableHead>Posição</TableHead>
+                            <TableHead className="w-48 text-right">Créditos (R$)</TableHead>
+                            <TableHead className="text-right">Ação</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {squad.map(player => (
+                            <TableRow key={player.id} className="group">
+                                <TableCell>
+                                    <div className="flex items-center gap-3">
+                                        <Avatar className="h-8 w-8">
+                                            <AvatarImage src={player.avatarUrl} alt={player.name} data-ai-hint="player photo" />
+                                            <AvatarFallback>{player.name.charAt(0)}</AvatarFallback>
+                                        </Avatar>
+                                        <span className="font-medium">{player.name}</span>
+                                    </div>
+                                </TableCell>
+                                <TableCell>
+                                    <Badge variant="secondary">{player.position}</Badge>
+                                </TableCell>
+                                <TableCell>
+                                    <Input 
+                                      type="number" 
+                                      value={playerCredits[player.id] || '0'}
+                                      onChange={e => handleCreditChange(player.id, e.target.value)}
+                                      className="text-right font-mono"
+                                      />
+                                </TableCell>
+                                <TableCell className="text-right">
+                                    <AlertDialog>
+                                        <AlertDialogTrigger asChild>
+                                        <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive">
+                                            <Trash2 className="h-4 w-4" />
+                                        </Button>
+                                        </AlertDialogTrigger>
+                                        <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                            <AlertDialogTitle>Você tem certeza?</AlertDialogTitle>
+                                            <AlertDialogDescription>
+                                            Esta ação não pode ser desfeita. Isso irá remover permanentemente o jogador <strong>{player.name}</strong> do elenco.
+                                            </AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                            <AlertDialogAction onClick={() => handleDeletePlayer(player.id)} className="bg-destructive hover:bg-destructive/90">
+                                            Sim, excluir jogador
+                                            </AlertDialogAction>
+                                        </AlertDialogFooter>
+                                        </AlertDialogContent>
+                                    </AlertDialog>
+                                </TableCell>
+                            </TableRow>
+                        ))}
+                    </TableBody>
+                </Table>
+            </ScrollArea>
+          </CardContent>
+        </Card>
+
+      <div className="mt-8 flex gap-4">
+        <Button onClick={handleSaveChanges}>Salvar Alterações Gerais</Button>
+        <Button onClick={applyCreditChanges} variant="secondary" className="gap-2">
+            <DollarSign/> Salvar Créditos
+        </Button>
+      </div>
+    </div>
+  );
+
+    

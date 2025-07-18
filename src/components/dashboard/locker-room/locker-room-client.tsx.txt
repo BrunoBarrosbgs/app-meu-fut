@@ -1,0 +1,271 @@
+
+
+'use client';
+
+import type { Match, Player } from "@/lib/types";
+import { Header } from "@/components/dashboard/header";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Calendar, Check, Clock, Hourglass, MapPin, ThumbsDown, ThumbsUp, X, ClipboardList, Share2, Dumbbell, Swords } from "lucide-react";
+import { useState, useEffect } from "react";
+import { cn } from "@/lib/utils";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from "@/components/ui/dialog";
+import { ChatComponent } from "./chat-component";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { matches as allMatches, players as initialPlayersData } from "@/lib/mock-data";
+import { MatchDetailViewer } from "../calendar/match-detail-viewer";
+import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
+
+interface LockerRoomClientProps {
+  upcomingMatches: Match[];
+  currentPlayerId: number;
+  players: Player[];
+  isPlayer: boolean;
+}
+
+export default function LockerRoomClient({ upcomingMatches: initialUpcomingMatches, currentPlayerId, players: initialPlayers, isPlayer }: LockerRoomClientProps) {
+  const { auth } = useAuth();
+  const [teamName, setTeamName] = useState('Meu Fut');
+  const [squad, setSquad] = useState<Player[]>(initialPlayers);
+  const [upcomingMatches, setUpcomingMatches] = useState<Match[]>(initialUpcomingMatches);
+  const [confirmations, setConfirmations] = useState<Record<number, 'confirmed' | 'declined' | null>>({});
+  const { toast } = useToast();
+
+  const teamId = auth.teamId;
+
+  const loadAllData = () => {
+      if (!teamId) return;
+      const teamNameKey = `${teamId}_teamName`;
+      const playersKey = `${teamId}_players`;
+
+      const storedTeamName = localStorage.getItem(teamNameKey) || 'Meu Fut';
+      setTeamName(storedTeamName);
+      
+      const storedPlayers = localStorage.getItem(playersKey);
+      const currentSquad = storedPlayers ? JSON.parse(storedPlayers) : initialPlayersData;
+      setSquad(currentSquad);
+      
+      const currentMatches = allMatches.filter(m => m.status === 'upcoming');
+      setUpcomingMatches(currentMatches);
+
+      // Initialize confirmations based on stored data
+      const initialConfirmations = currentMatches.reduce((acc, match) => {
+          if (match.confirmedPlayers.includes(currentPlayerId)) {
+              acc[match.id] = 'confirmed';
+          } else if (match.declinedPlayers?.includes(currentPlayerId)) {
+              acc[match.id] = 'declined';
+          } else {
+              acc[match.id] = null;
+          }
+          return acc;
+      }, {} as Record<number, 'confirmed' | 'declined' | null>);
+      setConfirmations(initialConfirmations);
+  };
+  
+  useEffect(() => {
+    loadAllData();
+
+    window.addEventListener('teamDataUpdated', loadAllData);
+    window.addEventListener('matchesUpdated', loadAllData);
+
+    return () => {
+      window.removeEventListener('teamDataUpdated', loadAllData);
+      window.removeEventListener('matchesUpdated', loadAllData);
+    }
+  }, [teamId, currentPlayerId]);
+
+  const handleConfirmation = (matchId: number, newStatus: 'confirmed' | 'declined') => {
+    const playersKey = `${teamId}_players`;
+    const currentStatus = confirmations[matchId];
+    if (currentStatus === newStatus || !isPlayer) return; // No change if clicking the same status again or not a player
+    
+    // Update player stats (attendance/absence)
+    const updatedSquad = squad.map(player => {
+        if (player.id === currentPlayerId) {
+            let { attendances, absences } = player;
+
+            if (currentStatus === 'confirmed') attendances = Math.max(0, attendances - 1);
+            if (currentStatus === 'declined') absences = Math.max(0, absences - 1);
+
+            if (newStatus === 'confirmed') attendances++;
+            if (newStatus === 'declined') absences++;
+            
+            return { ...player, attendances, absences };
+        }
+        return player;
+    });
+    localStorage.setItem(playersKey, JSON.stringify(updatedSquad));
+    setSquad(updatedSquad);
+
+    // Update local confirmation state
+    setConfirmations(prev => ({ ...prev, [matchId]: newStatus }));
+    
+    // Update global match data (simulating backend)
+    const matchIndex = allMatches.findIndex(m => m.id === matchId);
+    if (matchIndex > -1) {
+        const match = allMatches[matchIndex];
+        // Remove from both lists first to handle switching states
+        match.confirmedPlayers = match.confirmedPlayers.filter(id => id !== currentPlayerId);
+        match.declinedPlayers = (match.declinedPlayers || []).filter(id => id !== currentPlayerId);
+
+        if (newStatus === 'confirmed') {
+            match.confirmedPlayers.push(currentPlayerId);
+        } else if (newStatus === 'declined') {
+            match.declinedPlayers.push(currentPlayerId);
+        }
+    }
+    
+    // Notify other components
+    window.dispatchEvent(new CustomEvent('teamDataUpdated', { detail: { teamId } }));
+    window.dispatchEvent(new Event('matchesUpdated'));
+
+    toast({
+      title: `Presença ${newStatus === 'confirmed' ? 'Confirmada' : 'Recusada'}!`,
+      description: `Sua resposta para o evento foi registrada.`,
+    });
+  };
+  
+  const handleShare = (match: Match) => {
+    const starters = squad.filter(p => match.lineup[p.id]?.status === 'starter').map(p => `- ${p.name} (#${p.shirtNumber})`).join('\n');
+    const substitutes = squad.filter(p => match.lineup[p.id]?.status === 'substitute').map(p => `- ${p.name} (#${p.shirtNumber})`).join('\n');
+
+    const text = `
+*Próxima Partida: ${teamName} vs ${match.opponent}*
+🗓️ *Data:* ${new Date(match.date).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}
+⏰ *Horário:* ${match.time}
+📍 *Local:* ${match.location}
+
+*Escalação:*
+*Formação:* ${match.formation}
+
+*Titulares:*
+${starters.length > 0 ? starters : 'Nenhum titular escalado.'}
+
+*Reservas:*
+${substitutes.length > 0 ? substitutes : 'Nenhum reserva escalado.'}
+
+Confirme sua presença no app!
+    `.trim().replace(/\n\s+/g, '\n');
+
+    const encodedText = encodeURIComponent(text);
+    const whatsappUrl = `https://wa.me/?text=${encodedText}`;
+    window.open(whatsappUrl, '_blank');
+  };
+  
+  const getEventTitle = (match: Match) => {
+    if (match.type === 'training') {
+        return (
+            <div className="flex items-center gap-2">
+                <Dumbbell className="text-primary" />
+                <span className="font-headline text-primary">{match.opponent}</span>
+            </div>
+        )
+    }
+    return (
+        <div className="flex items-center gap-2">
+            <Swords className="text-primary" />
+            <span className="font-headline text-primary">{teamName} vs ${match.opponent}</span>
+        </div>
+    )
+  }
+
+  return (
+    <div>
+      <Header title="Vestiário" pageContext="locker-room" />
+      
+      <div className="grid lg:grid-cols-2 gap-8">
+        {/* Coluna da Esquerda: Partidas */}
+        <div className="flex flex-col gap-6">
+          <h2 className="font-headline text-2xl text-glow">Próximos Eventos</h2>
+          <ScrollArea className="h-[70vh] pr-4">
+            <div className="space-y-6">
+              {upcomingMatches.length > 0 ? upcomingMatches.map(match => {
+                const status = confirmations[match.id];
+                return (
+                  <Card key={match.id} className={cn(
+                    "transition-all flex flex-col",
+                    isPlayer && status === 'confirmed' && 'border-green-400/50',
+                    isPlayer && status === 'declined' && 'border-red-500/50 opacity-70'
+                  )}>
+                    <CardHeader>
+                      <CardTitle>{getEventTitle(match)}</CardTitle>
+                      <CardDescription className="flex items-center flex-wrap gap-4 pt-2">
+                        <span className="flex items-center gap-1.5"><Calendar size={14} /> {new Date(match.date).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}</span>
+                        <span className="flex items-center gap-1.5"><Clock size={14} /> {match.time}</span>
+                        {match.duration && <span className="flex items-center gap-1.5"><Hourglass size={14} /> {match.duration} min</span>}
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="flex-grow">
+                      <p className="flex items-center gap-1.5 text-sm text-muted-foreground"><MapPin size={14} /> {match.location}</p>
+                      {isPlayer && status && (
+                          <div className={cn(
+                              "mt-4 flex items-center gap-2 rounded-md p-2 text-sm",
+                              status === 'confirmed' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'
+                          )}>
+                              {status === 'confirmed' ? <Check size={16} /> : <X size={16} />}
+                              <span>Sua presença está {status === 'confirmed' ? 'confirmada' : 'recusada'}.</span>
+                          </div>
+                      )}
+                    </CardContent>
+                    <CardFooter className="flex-col gap-2 items-stretch">
+                       {isPlayer && (
+                        <div className="flex gap-2">
+                            <Button 
+                              onClick={() => handleConfirmation(match.id, 'confirmed')}
+                              className="w-full gap-2 bg-green-500/80 hover:bg-green-500/90 text-white"
+                              variant={status === 'confirmed' ? 'default' : 'outline'}
+                            >
+                              <ThumbsUp size={16} /> Confirmar
+                            </Button>
+                            <Button 
+                              onClick={() => handleConfirmation(match.id, 'declined')}
+                              className="w-full gap-2 bg-red-500/80 hover:bg-red-500/90 text-white"
+                              variant={status === 'declined' ? 'destructive' : 'outline'}
+                            >
+                              <ThumbsDown size={16} /> Recusar
+                            </Button>
+                        </div>
+                       )}
+                      <Dialog>
+                          <DialogTrigger asChild>
+                              <Button variant="outline" className="w-full gap-2">
+                                  <ClipboardList size={16} /> Ver Escalação
+                              </Button>
+                          </DialogTrigger>
+                          <DialogContent className="max-w-[95vw] sm:max-w-5xl">
+                              <DialogHeader>
+                                  <DialogTitle>Escalação para: {match.type === 'training' ? match.opponent : `${teamName} vs ${match.opponent}`}</DialogTitle>
+                                  <DialogDescription>Esta é a escalação e formação definidas pelo técnico. Fique atento para atualizações.</DialogDescription>
+                              </DialogHeader>
+                              <div className="mt-4 max-h-[70vh] overflow-y-auto pr-2">
+                                <MatchDetailViewer match={match} players={squad} interactive={false} />
+                              </div>
+                              <DialogFooter>
+                                  <Button onClick={() => handleShare(match)} className="gap-2">
+                                      <Share2 size={16} /> Compartilhar no WhatsApp
+                                  </Button>
+                                  <DialogClose asChild>
+                                      <Button variant="outline">Fechar</Button>
+                                  </DialogClose>
+                              </DialogFooter>
+                          </DialogContent>
+                      </Dialog>
+                    </CardFooter>
+                  </Card>
+                )
+              }) : (
+                <p className="text-muted-foreground col-span-full text-center py-10">Nenhum evento agendado. Volte mais tarde!</p>
+              )}
+            </div>
+          </ScrollArea>
+        </div>
+
+        {/* Coluna da Direita: Chat */}
+        <div>
+           <ChatComponent players={squad} />
+        </div>
+      </div>
+    </div>
+  );
+}

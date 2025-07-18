@@ -1,0 +1,152 @@
+
+
+'use client'
+
+import * as React from 'react';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { FutsalCourtSvg } from "@/components/icons/futsal-court-svg";
+import { SoccerFieldSvg } from "@/components/icons/soccer-field-svg";
+import { SoccerBallIcon } from '@/components/icons/soccer-ball-icon';
+import type { MatchModality, Player } from "@/lib/types";
+import { cn } from '@/lib/utils';
+
+
+const PlayerIconContent = ({ player, isSelected, onMouseDown, onTouchStart, onClick }: { 
+    player: Player; 
+    isSelected: boolean; 
+    onMouseDown: (e: React.MouseEvent) => void;
+    onTouchStart: (e: React.TouchEvent) => void;
+    onClick: (e: React.MouseEvent) => void;
+}) => (
+    <div className="relative group flex flex-col items-center" onClick={onClick}>
+        <Avatar 
+            className={cn(
+                "w-10 h-10 border-2 shadow-lg cursor-pointer group-hover:scale-110 transition-transform duration-200", 
+                isSelected ? 'border-yellow-400 ring-2 ring-yellow-400' : 'border-white/80'
+            )}
+            onMouseDown={onMouseDown}
+            onTouchStart={onTouchStart}
+        >
+            <AvatarImage src={player.avatarUrl} alt={player.name} data-ai-hint="player photo" />
+            <AvatarFallback className="bg-black text-white font-bold">{player.name.charAt(0)}</AvatarFallback>
+            <div className="absolute -bottom-1 -right-1 flex items-center justify-center w-5 h-5 rounded-full bg-primary text-primary-foreground text-xs font-bold border-2 border-background">
+                {player.shirtNumber}
+            </div>
+        </Avatar>
+        <span className="text-xs font-bold text-white bg-black/60 px-1.5 rounded mt-1.5 max-w-[70px] truncate">{player.name}</span>
+    </div>
+);
+
+
+interface FieldViewProps {
+    modality: MatchModality;
+    starters: Player[];
+    playerPositions: Record<number, { x: number; y: number; }>;
+    ballPosition: { x: number; y: number };
+    selectedPlayerId?: number | null;
+    draggingPlayerId: number | null;
+    onPlayerClick: (id: number | null) => void;
+    onPlayerDragStart: (id: number, e: React.MouseEvent | React.TouchEvent) => void;
+    onPlayerDragEnd: () => void;
+    onPlayerDrag: (e: React.MouseEvent | React.TouchEvent) => void;
+    className?: string;
+    children?: React.ReactNode;
+    interactive: boolean;
+    isDrawing: boolean;
+}
+
+export function FieldView({ 
+    modality, 
+    starters, 
+    playerPositions,
+    ballPosition,
+    selectedPlayerId,
+    draggingPlayerId,
+    onPlayerClick, 
+    onPlayerDragStart,
+    onPlayerDrag,
+    onPlayerDragEnd,
+    className,
+    children,
+    interactive,
+    isDrawing
+}: FieldViewProps) {
+    const FieldComponent = modality === 'Futsal' ? FutsalCourtSvg : SoccerFieldSvg;
+    
+    const handleBackgroundClick = (e: React.MouseEvent) => {
+        if (!interactive) return;
+        const target = e.target as HTMLElement;
+        if (target === e.currentTarget || target.tagName === 'svg' || target.tagName === 'rect') {
+            onPlayerClick(null);
+        }
+    }
+
+    const fieldCursorClass = () => {
+        if (!interactive) return 'cursor-default';
+        if (isDrawing) return 'cursor-crosshair';
+        if (draggingPlayerId) return 'cursor-grabbing';
+        return 'cursor-grab';
+    }
+
+    return (
+        <div 
+            className={cn("relative w-full h-full", className, fieldCursorClass())}
+            onClick={handleBackgroundClick}
+            onMouseMove={interactive ? onPlayerDrag : undefined}
+            onMouseUp={interactive ? onPlayerDragEnd : undefined}
+            onMouseLeave={interactive ? onPlayerDragEnd : undefined}
+            onTouchMove={interactive ? onPlayerDrag : undefined}
+            onTouchEnd={interactive ? onPlayerDragEnd : undefined}
+        >
+            <FieldComponent className="absolute inset-0 w-full h-full" />
+            
+            {children}
+            
+            <div 
+                className="absolute z-10 w-5 h-5 drop-shadow-md"
+                style={{ 
+                    left: `${ballPosition.x}%`, 
+                    top: `${ballPosition.y}%`, 
+                    transform: 'translate(-50%, -50%)',
+                    transition: 'left 0.016s linear, top 0.016s linear',
+                }}
+            >
+                <SoccerBallIcon className="w-full h-full" />
+            </div>
+
+            {starters.map(player => {
+                const basePos = playerPositions[player.id];
+                if (!basePos) return null;
+
+                const isSelected = player.id === selectedPlayerId;
+                
+                return (
+                     <React.Fragment key={`player-fragment-${player.id}`}>
+                        <div 
+                            key={`player-${player.id}`} 
+                            className="absolute z-10"
+                            style={{ 
+                                top: `${basePos.y}%`, 
+                                left: `${basePos.x}%`, 
+                                transform: 'translate(-50%, -50%)',
+                                transition: draggingPlayerId === player.id || !interactive ? 'none' : 'top 0.05s linear, left 0.05s linear',
+                                cursor: 'inherit'
+                            }}
+                        >
+                            <PlayerIconContent 
+                                player={player} 
+                                isSelected={isSelected}
+                                onMouseDown={interactive && !isDrawing ? (e) => onPlayerDragStart(player.id, e) : (e) => e.stopPropagation()}
+                                onTouchStart={interactive && !isDrawing ? (e) => onPlayerDragStart(player.id, e) : (e) => e.stopPropagation()}
+                                onClick={(e) => {
+                                    e.stopPropagation(); 
+                                    if(interactive) onPlayerClick(player.id);
+                                }}
+                            />
+                        </div>
+                    </React.Fragment>
+                );
+            })}
+        </div>
+    );
+}

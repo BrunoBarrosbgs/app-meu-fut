@@ -1,0 +1,115 @@
+export type Player = {
+  id: number;
+  name: string;
+  position: 'Goleiro' | 'Defensor' | 'Meio-campista' | 'Atacante';
+  gamesPlayed: number;
+  goals: number;
+  assists: number;
+  credits: number;
+  avatarUrl: string;
+  shirtNumber: number;
+  attendances: number;
+  absences: number;
+  penaltyGoals?: number;
+  totalWinnings?: number;
+  manOfTheMatchAwards?: number; // Novo campo
+};
+
+export type MatchModality = 'Campo' | 'Society' | 'Futsal';
+
+export type PlayerLineupStatus = 'starter' | 'substitute' | 'unselected';
+
+export type PlayerLineup = {
+  status: PlayerLineupStatus;
+  position: Player['position'];
+};
+
+export type MatchLineup = Record<string | number, PlayerLineup>;
+
+export type Goalscorer = {
+  playerId: number;
+  goals: number;
+};
+
+export type PlayerMatchRating = {
+  total: number;
+  count: number;
+  average: number;
+  voters: (string | number)[];
+};
+
+export type Match = {
+  id: number;
+  type: 'match' | 'training';
+  opponent: string;
+  date: string;
+  time: string;
+  location: string;
+  status: 'upcoming' | 'past';
+  score?: string;
+  confirmedPlayers: number[];
+  declinedPlayers?: number[];
+  duration?: number;
+  modality: MatchModality;
+  formation: string;
+  lineup: MatchLineup;
+  bettingOpen: boolean;
+  betAmount?: number;
+  goalscorers?: Goalscorer[];
+  ratings?: Record<string, PlayerMatchRating>; 
+  playerPositions?: Record<number, { x: number, y: number }>;
+  championshipId?: number;
+};
+
+export type Bet = {
+  id: number;
+  matchId: number;
+  userId: number; // Corresponds to player id
+  type: 'score' | 'top_scorer';
+  betValue: string | number; // "2x1" for score, or player ID for top_scorer
+  amount: number;
+  status: 'pending' | 'won' | 'lost';
+};
+
+export type ChatMessage = {
+  id?: string;
+  senderId: number | string;
+  senderName: string;
+  senderAvatarUrl: string;
+  text: string;
+  timestamp: any; // Firestore Timestamp
+  mentions?: (string | number)[];
+};
+
+export type AppNotification = {
+  id?: string;
+  type: 'new_match' | 'mention';
+  message: string;
+  recipientId: number | string;
+  matchId?: number;
+  gameId?: string;
+  isRead: boolean;
+  timestamp: any; // Firestore Timestamp
+}
+
+export type FinancialTransaction = {
+  id: number;
+  type: 'deposit' | 'withdrawal' | 'bet_cut';
+  description: string;
+  amount: number;
+  date: string;
+};
+
+export type ChampionshipStandout = {
+  playerId: number;
+  description: string;
+};
+
+export type Championship = {
+  id: number;
+  name: string;
+  year: number;
+  finalPosition: number;
+  highlights: string;
+  standouts: ChampionshipStandout[];
+};

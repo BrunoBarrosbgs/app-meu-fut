@@ -1,0 +1,84 @@
+
+'use client';
+
+import type { Player } from "@/lib/types";
+import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
+import { BarChart3, ShieldCheck, Target, Trophy } from "lucide-react";
+import { cn } from "@/lib/utils";
+import Image from "next/image";
+
+interface PlayerCollectibleCardProps {
+  player: Player;
+  matchStats?: { goals: number; assists: number; gamesPlayed: number; } | null;
+}
+
+export function PlayerCollectibleCard({ player, matchStats }: PlayerCollectibleCardProps) {
+  const goals = matchStats ? matchStats.goals : player.goals;
+  const gamesPlayed = matchStats ? matchStats.gamesPlayed : player.gamesPlayed;
+  const assists = matchStats ? matchStats.assists : player.assists;
+  const manOfTheMatchAwards = player.manOfTheMatchAwards || 0;
+
+  const goalsPerGame = gamesPlayed > 0 ? (goals / gamesPlayed).toFixed(2) : "0.00";
+
+  return (
+    <div className="relative w-full max-w-sm mx-auto group">
+      <div className={cn(
+          "absolute -inset-1 bg-gradient-to-r from-green-400 to-blue-500 rounded-lg blur opacity-75 group-hover:opacity-100 transition duration-1000 group-hover:duration-200 animate-tilt",
+      )}></div>
+      <Card className="relative bg-card/80 backdrop-blur-lg overflow-hidden">
+        <CardHeader className="p-0 border-b-2 border-primary/50 relative">
+          <div className="aspect-[3/4] w-full bg-black/30">
+             <Image 
+                src={player.avatarUrl} 
+                alt={player.name}
+                width={400}
+                height={533}
+                className="w-full h-full object-cover object-top opacity-80 group-hover:opacity-100 group-hover:scale-105 transition-all duration-500"
+                data-ai-hint="football player action shot"
+            />
+          </div>
+          <div className="absolute bottom-0 left-0 w-full p-4 bg-gradient-to-t from-black/80 via-black/50 to-transparent">
+             <h2 className="font-headline text-3xl text-glow">{player.name}</h2>
+             <p className="text-lg text-primary font-bold">{player.position}</p>
+          </div>
+           <div className="absolute top-2 right-2 flex items-center gap-1.5 p-2 rounded-full bg-black/50 text-yellow-400 font-bold text-sm backdrop-blur-sm">
+                <Trophy className="w-5 h-5 fill-current" />
+                <span>{manOfTheMatchAwards}</span>
+            </div>
+        </CardHeader>
+        <CardContent className="p-4 space-y-3">
+            <h3 className="font-headline text-lg text-glow text-center">
+              {matchStats ? "Estatísticas na Partida" : "Estatísticas da Carreira"}
+            </h3>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+              {matchStats ? (
+                  <div className="flex justify-between items-center border-b border-white/10 pb-1 col-span-2">
+                      <span className="flex items-center gap-1.5 text-muted-foreground"><Target size={14} /> Gols na Partida</span>
+                      <span className="font-bold font-mono text-2xl text-primary">{goals}</span>
+                  </div>
+              ) : (
+                <>
+                  <div className="flex justify-between items-center border-b border-white/10 pb-1">
+                      <span className="flex items-center gap-1.5 text-muted-foreground"><ShieldCheck size={14} /> Jogos</span>
+                      <span className="font-bold font-mono">{player.gamesPlayed}</span>
+                  </div>
+                  <div className="flex justify-between items-center border-b border-white/10 pb-1">
+                      <span className="flex items-center gap-1.5 text-muted-foreground"><Target size={14} /> Gols</span>
+                      <span className="font-bold font-mono">{player.goals}</span>
+                  </div>
+                  <div className="flex justify-between items-center border-b border-white/10 pb-1">
+                      <span className="flex items-center gap-1.5 text-muted-foreground"><BarChart3 size={14} /> Assistências</span>
+                      <span className="font-bold font-mono">{player.assists}</span>
+                  </div>
+                  <div className="flex justify-between items-center border-b border-white/10 pb-1">
+                      <span className="flex items-center gap-1.5 text-muted-foreground"><BarChart3 size={14} /> Gols p/ Jogo</span>
+                      <span className="font-bold font-mono">{goalsPerGame}</span>
+                  </div>
+                </>
+              )}
+            </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

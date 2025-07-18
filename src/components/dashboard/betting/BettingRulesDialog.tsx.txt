@@ -1,0 +1,79 @@
+
+'use client';
+
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { HelpCircle, Gem, Target, Banknote, Trophy, Percent, Users } from "lucide-react";
+import { ScrollArea } from "@/components/ui/scroll-area";
+
+const RuleItem = ({ icon, title, description }: { icon: React.ReactNode, title: string, description: string }) => (
+    <div className="flex items-start gap-4 p-3 rounded-lg bg-muted/50">
+        <div className="text-primary mt-1">{icon}</div>
+        <div>
+            <h4 className="font-bold">{title}</h4>
+            <p className="text-sm text-muted-foreground">{description}</p>
+        </div>
+    </div>
+);
+
+export function BettingRulesDialog() {
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="icon">
+          <HelpCircle className="h-5 w-5 text-muted-foreground" />
+          <span className="sr-only">Regras das Apostas</span>
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Como Funciona a Central de Apostas</DialogTitle>
+          <DialogDescription>
+            Um guia rápido sobre as regras do nosso sistema de apostas. Leia com atenção e boa sorte!
+          </DialogDescription>
+        </DialogHeader>
+        <ScrollArea className="max-h-[60vh] pr-4 mt-4">
+            <div className="space-y-4">
+                <RuleItem 
+                    icon={<Gem />}
+                    title="1. Créditos de Aposta"
+                    description="Os créditos são a moeda para apostar. Para adicionar créditos à sua conta, você deve solicitar ao Diretor do time, que fará a atualização do seu saldo na página de Configurações."
+                />
+                 <RuleItem 
+                    icon={<Target />}
+                    title="2. Tipos de Aposta"
+                    description="Você pode fazer dois tipos de apostas separadas por partida: 'Placar Exato' para adivinhar o resultado final, e 'Artilheiro' para adivinhar qual jogador do seu time marcará pelo menos um gol."
+                />
+                 <RuleItem 
+                    icon={<Percent />}
+                    title="3. Taxa do Clube"
+                    description="Para cada aposta realizada, uma taxa de 10% do valor apostado é automaticamente destinada ao Caixa do Clube. Esse fundo ajuda a cobrir despesas do time."
+                />
+                 <RuleItem 
+                    icon={<Banknote />}
+                    title="4. Distribuição de Prêmios"
+                    description="Após o Diretor registrar o resultado de uma partida, o sistema calcula o prêmio. O valor total arrecadado para cada tipo de aposta (Placar e Artilheiro), descontada a taxa, é dividido igualmente entre todos os que acertaram aquele palpite."
+                />
+                 <RuleItem 
+                    icon={<Users />}
+                    title="5. Múltiplos Vencedores"
+                    description="Se mais de uma pessoa acertar o mesmo tipo de aposta, o prêmio daquela categoria é dividido igualmente entre elas. Se ninguém acertar, o prêmio acumula para o caixa do clube."
+                />
+                <RuleItem 
+                    icon={<Trophy />}
+                    title="6. Hall da Fama"
+                    description="O 'Hall da Fama dos Palpiteiros' classifica os jogadores com base no total de créditos ganhos em apostas ao longo do tempo. Quanto mais você acerta, mais alto fica no ranking!"
+                />
+            </div>
+        </ScrollArea>
+      </DialogContent>
+    </Dialog>
+  );
+}

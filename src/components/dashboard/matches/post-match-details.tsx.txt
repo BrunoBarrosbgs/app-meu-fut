@@ -1,0 +1,348 @@
+
+'use client';
+
+import { useState, useMemo } from 'react';
+import type { Match, Player, Goalscorer, Bet } from '@/lib/types';
+import { useAuth } from '@/hooks/use-auth';
+import { useToast } from '@/hooks/use-toast';
+import { matches as allMatches, players as allPlayers } from '@/lib/mock-data';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
+import { ArrowLeft, Crown, Star } from 'lucide-react';
+import { StarRating } from '@/components/ui/star-rating';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { DialogFooter } from '@/components/ui/dialog';
+
+const CLUB_CUT_PERCENTAGE = 0.10;
+
+interface PostMatchDetailsProps {
+  match: Match;
+  players: Player[];
+  onUpdate: () => void;
+  onClose: () => void;
+  teamName: string;
+}
+
+export function PostMatchDetails({ match: initialMatch, players, onUpdate, onClose, teamName }: PostMatchDetailsProps) {
+  const { auth } = useAuth();
+  const { toast } = useToast();
+  
+  const [match, setMatch] = useState(initialMatch);
+  
+  const [scoreA, setScoreA] = useState('');
+  const [scoreB, setScoreB] = useState('');
+  const [goalscorers, setGoalscorers] = useState<Record<string, number>>({});
+
+  const teamId = auth.teamId;
+  const BETS_STORAGE_KEY = useMemo(() => teamId ? `${teamId}_bets` : null, [teamId]);
+  const PLAYERS_STORAGE_KEY = useMemo(() => teamId ? `${teamId}_players` : null, [teamId]);
+
+  const participants = useMemo(() => 
+    players.filter(p => match.lineup[p.id]?.status === 'starter' || match.lineup[p.id]?.status === 'substitute'),
+    [players, match.lineup]
+  );
+  
+  const manOfTheMatch = useMemo(() => {
+    if (!match.ratings || Object.keys(match.ratings).length === 0) return null;
+
+    let bestPlayerId: string | null = null;
+    let highestRating = -1;
+    let mostVotes = -1;
+
+    for (const playerId in match.ratings) {
+      const ratingInfo = match.ratings[playerId];
+      
+      if (ratingInfo.average > highestRating) {
+        highestRating = ratingInfo.average;
+        mostVotes = ratingInfo.count;
+        bestPlayerId = playerId;
+      } 
+      else if (ratingInfo.average === highestRating) {
+        if (ratingInfo.count > mostVotes) {
+          mostVotes = ratingInfo.count;
+          bestPlayerId = playerId;
+        }
+      }
+    }
+    
+    return bestPlayerId ? players.find(p => p.id.toString() === bestPlayerId) : null;
+  }, [match.ratings, players]);
+
+  const handleGoalChange = (playerId: number, value: string) => {
+    const goals = parseInt(value, 10);
+    setGoalscorers(prev => ({ ...prev, [playerId]: isNaN(goals) ? 0 : goals }));
+  };
+  
+  const processAndDistributeWinnings = (matchId: number, finalScore: string, actualGoalscorers: number[]) => {
+      if (!BETS_STORAGE_KEY || !PLAYERS_STORAGE_KEY) return;
+      const storedBets = localStorage.getItem(BETS_STORAGE_KEY);
+      const allBets: Bet[] = storedBets ? JSON.parse(storedBets) : [];
+      const storedPlayers = localStorage.getItem(PLAYERS_STORAGE_KEY);
+      const currentPlayers: Player[] = storedPlayers ? JSON.parse(storedPlayers) : [];
+
+      const matchBets = allBets.filter(b => b.matchId === matchId && b.status === 'pending');
+      if (matchBets.length === 0) return;
+      
+      const scoreBets = matchBets.filter(b => b.type === 'score');
+      const scorerBets = matchBets.filter(b => b.type === 'top_scorer');
+
+      const scoreWinners = scoreBets.filter(b => b.betValue === finalScore.replace(/\s/g, ''));
+      const scorePrizePool = scoreBets.reduce((sum, b) => sum + b.amount, 0) * (1 - CLUB_CUT_PERCENTAGE);
+      const scoreWinningsPerWinner = scoreWinners.length > 0 ? scorePrizePool / scoreWinners.length : 0;
+      
+      const scorerWinners = scorerBets.filter(b => actualGoalscorers.includes(Number(b.betValue)));
+      const scorerPrizePool = scorerBets.reduce((sum, b) => sum + b.amount, 0) * (1 - CLUB_CUT_PERCENTAGE);
+      const scorerWinningsPerWinner = scorerWinners.length > 0 ? scorerPrizePool / scorerWinners.length : 0;
+
+      scoreWinners.forEach(bet => {
+          const playerIndex = currentPlayers.findIndex(p => p.id === bet.userId);
+          if (playerIndex > -1) {
+              currentPlayers[playerIndex].credits += scoreWinningsPerWinner;
+              currentPlayers[playerIndex].totalWinnings = (currentPlayers[playerIndex].totalWinnings || 0) + scoreWinningsPerWinner;
+          }
+      });
+       scorerWinners.forEach(bet => {
+          const playerIndex = currentPlayers.findIndex(p => p.id === bet.userId);
+          if (playerIndex > -1) {
+              currentPlayers[playerIndex].credits += scorerWinningsPerWinner;
+              currentPlayers[playerIndex].totalWinnings = (currentPlayers[playerIndex].totalWinnings || 0) + scorerWinningsPerWinner;
+          }
+      });
+
+      const updatedBets = allBets.map(bet => {
+          if (bet.matchId !== matchId || bet.status !== 'pending') return bet;
+          const isWinner = (bet.type === 'score' && scoreWinners.some(w => w.id === bet.id)) ||
+                           (bet.type === 'top_scorer' && scorerWinners.some(w => w.id === bet.id));
+          return { ...bet, status: isWinner ? 'won' : 'lost' };
+      });
+      
+      localStorage.setItem(PLAYERS_STORAGE_KEY, JSON.stringify(currentPlayers));
+      localStorage.setItem(BETS_STORAGE_KEY, JSON.stringify(updatedBets));
+      
+      window.dispatchEvent(new CustomEvent('teamDataUpdated', { detail: { teamId } }));
+
+      if (scoreWinners.length > 0 || scorerWinners.length > 0) {
+        toast({ title: "Vencedores Pagos!", description: "Os prêmios das apostas foram distribuídos." });
+      }
+  };
+
+  const handleSaveResults = () => {
+    if (!PLAYERS_STORAGE_KEY) return;
+    const teamScore = parseInt(scoreA, 10);
+    const opponentScore = parseInt(scoreB, 10);
+
+    if (isNaN(teamScore) || isNaN(opponentScore) || teamScore < 0 || opponentScore < 0) {
+      toast({ variant: 'destructive', title: 'Placar inválido.' });
+      return;
+    }
+
+    const goalscorersList: Goalscorer[] = Object.entries(goalscorers)
+      .filter(([, goals]) => goals > 0)
+      .map(([playerId, goals]) => ({ playerId: parseInt(playerId, 10), goals }));
+    
+    const matchIndex = allMatches.findIndex(m => m.id === match.id);
+    if (matchIndex > -1) {
+      const finalScoreString = `${teamScore} - ${opponentScore}`;
+      allMatches[matchIndex].score = finalScoreString;
+      allMatches[matchIndex].goalscorers = goalscorersList;
+      allMatches[matchIndex].ratings = {};
+      allMatches[matchIndex].bettingOpen = false;
+
+      const playersToUpdate = JSON.parse(localStorage.getItem(PLAYERS_STORAGE_KEY) || JSON.stringify(allPlayers));
+      goalscorersList.forEach(({ playerId, goals }) => {
+        const playerIndex = playersToUpdate.findIndex((p: Player) => p.id === playerId);
+        if (playerIndex > -1) playersToUpdate[playerIndex].goals += goals;
+      });
+      participants.forEach(p => {
+        const playerIndex = playersToUpdate.findIndex((pl: Player) => pl.id === p.id);
+        if(playerIndex > -1) playersToUpdate[playerIndex].gamesPlayed += 1;
+      });
+      localStorage.setItem(PLAYERS_STORAGE_KEY, JSON.stringify(playersToUpdate));
+      
+      processAndDistributeWinnings(match.id, `${teamScore}x${opponentScore}`, goalscorersList.map(g => g.playerId));
+      
+      setMatch(allMatches[matchIndex]);
+      onUpdate();
+      window.dispatchEvent(new CustomEvent('teamDataUpdated', { detail: { teamId } }));
+
+      toast({ title: 'Resultado salvo com sucesso!' });
+    }
+  };
+
+  const handleRating = (ratedPlayerId: number, rating: number) => {
+    if (!auth.id) return;
+
+    const matchIndex = allMatches.findIndex(m => m.id === match.id);
+    if (matchIndex === -1) return;
+
+    const currentMatch = allMatches[matchIndex];
+    if (!currentMatch.ratings) currentMatch.ratings = {};
+    
+    const playerRating = currentMatch.ratings[ratedPlayerId] || { total: 0, count: 0, average: 0, voters: [] };
+
+    if (playerRating.voters.some(voterId => voterId.toString() === auth.id?.toString())) {
+        toast({ variant: 'destructive', title: 'Você já avaliou este jogador.' });
+        return;
+    }
+    
+    playerRating.total += rating;
+    playerRating.count += 1;
+    playerRating.average = parseFloat((playerRating.total / playerRating.count).toFixed(2));
+    playerRating.voters.push(auth.id);
+
+    currentMatch.ratings[ratedPlayerId] = playerRating;
+    setMatch({ ...currentMatch });
+    onUpdate();
+
+    toast({ title: 'Avaliação registrada!', description: `Você avaliou ${players.find(p=>p.id === ratedPlayerId)?.name} com ${rating} estrelas.`});
+  };
+
+  const finishVotingAndAwardMOTM = () => {
+    if (!PLAYERS_STORAGE_KEY) return;
+    if (!manOfTheMatch) {
+      toast({ title: 'Votação encerrada', description: 'Nenhum jogador eleito craque da partida.' });
+      onClose();
+      return;
+    }
+    
+    const playersToUpdate = JSON.parse(localStorage.getItem(PLAYERS_STORAGE_KEY) || JSON.stringify(allPlayers));
+    const playerIndex = playersToUpdate.findIndex((p: Player) => p.id === manOfTheMatch.id);
+    
+    if (playerIndex > -1) {
+      playersToUpdate[playerIndex].manOfTheMatchAwards = (playersToUpdate[playerIndex].manOfTheMatchAwards || 0) + 1;
+      localStorage.setItem(PLAYERS_STORAGE_KEY, JSON.stringify(playersToUpdate));
+      window.dispatchEvent(new CustomEvent('teamDataUpdated', { detail: { teamId } }));
+      toast({ title: 'Craque da Partida Definido!', description: `${manOfTheMatch.name} foi eleito o melhor em campo!` });
+    }
+    onClose();
+  };
+
+
+  if (auth.role === 'admin' && !match.score) {
+    return (
+      <>
+        <div className="space-y-6 max-h-[70vh] overflow-y-auto pr-4 -mr-4">
+          <div>
+            <Label className="font-bold text-lg">Registrar Placar Final</Label>
+            <div className="flex items-center gap-4 mt-2">
+              <Input type="number" placeholder={`Gols ${teamName}`} value={scoreA} onChange={e => setScoreA(e.target.value)} className="text-center" />
+              <span className="font-bold">X</span>
+              <Input type="number" placeholder={`Gols ${match.opponent}`} value={scoreB} onChange={e => setScoreB(e.target.value)} className="text-center" />
+            </div>
+          </div>
+          <div>
+            <Label className="font-bold text-lg">Registrar Gols</Label>
+            <ScrollArea className="h-64 mt-2">
+              <div className="space-y-2 pr-4">
+                {participants.map(p => (
+                  <div key={p.id} className="flex items-center justify-between gap-4 p-2 bg-muted/50 rounded-md">
+                    <div className="flex items-center gap-2">
+                      <Avatar className="h-8 w-8"><AvatarImage src={p.avatarUrl} data-ai-hint="player photo" /><AvatarFallback>{p.name.charAt(0)}</AvatarFallback></Avatar>
+                      <span>{p.name}</span>
+                    </div>
+                    <Input type="number" className="w-20" placeholder="0" min="0" onChange={e => handleGoalChange(p.id, e.target.value)} />
+                  </div>
+                ))}
+              </div>
+            </ScrollArea>
+          </div>
+        </div>
+        <DialogFooter className="pt-4 border-t mt-4">
+            <Button onClick={onClose} variant="outline" className="w-full sm:w-auto">
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Voltar
+            </Button>
+            <Button onClick={handleSaveResults} className="w-full sm:w-auto">Salvar Resultado</Button>
+        </DialogFooter>
+      </>
+    );
+  }
+
+  return (
+    <>
+        <div className="space-y-6 max-h-[70vh] overflow-y-auto pr-4 -mr-4">
+            <Card>
+                <CardHeader>
+                    <CardTitle className="text-center">Placar Final</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <p className="text-4xl font-headline text-center text-glow">{match.score}</p>
+                    {match.goalscorers && match.goalscorers.length > 0 && (
+                        <div className="mt-4">
+                            <h4 className="text-sm font-bold text-center text-muted-foreground">MARCADORES</h4>
+                            <ul className="text-center text-sm mt-1">
+                                {match.goalscorers.map(({ playerId, goals }) => (
+                                    <li key={playerId}>{players.find(p => p.id === playerId)?.name} ({goals})</li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
+                </CardContent>
+            </Card>
+            
+            <Card>
+                <CardHeader>
+                     <CardTitle>Avaliações da Partida</CardTitle>
+                     <CardDescription>Avalie o desempenho dos seus companheiros de equipe.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    {manOfTheMatch && (
+                         <div className="mb-6 p-4 rounded-lg bg-yellow-500/10 border border-yellow-500/30 flex flex-col items-center text-center">
+                             <Crown className="w-8 h-8 text-yellow-400" />
+                             <p className="font-bold mt-1">Craque da Partida</p>
+                             <p className="text-lg font-headline text-glow">{manOfTheMatch.name}</p>
+                             <div className="flex items-center gap-1">
+                                <Star size={14} className="fill-yellow-400 text-yellow-400" />
+                                <span className="font-bold">{match.ratings?.[manOfTheMatch.id]?.average.toFixed(1)}</span>
+                             </div>
+                         </div>
+                    )}
+                    <ScrollArea className="h-96">
+                        <div className="space-y-3 pr-4">
+                            {participants.map(p => {
+                                const ratingInfo = match.ratings?.[p.id.toString()];
+                                const hasVoted = auth.id ? ratingInfo?.voters.some(voterId => voterId.toString() === auth.id?.toString()) : true;
+
+                                return (
+                                    <div key={p.id} className="flex items-center justify-between gap-2 p-2 bg-muted/50 rounded-md">
+                                        <div className="flex items-center gap-2">
+                                             <Avatar className="h-8 w-8"><AvatarImage src={p.avatarUrl} data-ai-hint="player photo" /><AvatarFallback>{p.name.charAt(0)}</AvatarFallback></Avatar>
+                                             <div>
+                                                <p className="font-medium text-sm">{p.name}</p>
+                                                <div className="flex items-center gap-1 text-muted-foreground">
+                                                    <Star size={12} className={ratingInfo ? 'text-yellow-500 fill-yellow-500' : ''}/>
+                                                    <span className="text-xs">{ratingInfo ? `${ratingInfo.average.toFixed(1)} (${ratingInfo.count})` : 'N/A'}</span>
+                                                </div>
+                                             </div>
+                                        </div>
+                                        { (auth.role === 'player' || auth.role === 'admin') && (
+                                            <StarRating 
+                                                value={ratingInfo?.average || 0}
+                                                onChange={(rating) => handleRating(p.id, rating)}
+                                                isReadOnly={hasVoted || p.id.toString() === auth.id}
+                                            />
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </ScrollArea>
+                </CardContent>
+            </Card>
+        </div>
+        <DialogFooter className="pt-4 border-t mt-4">
+            { auth.role === 'admin' ? (
+                <Button onClick={finishVotingAndAwardMOTM} className="w-full">Encerrar Votação</Button>
+            ) : (
+                <Button onClick={onClose} variant="outline" className="w-full">
+                    <ArrowLeft className="mr-2 h-4 w-4" />
+                    Voltar
+                </Button>
+            )}
+        </DialogFooter>
+    </>
+  );
+}

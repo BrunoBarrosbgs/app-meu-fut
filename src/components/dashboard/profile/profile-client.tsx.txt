@@ -1,0 +1,94 @@
+
+'use client';
+
+import type { Player } from "@/lib/types";
+import { Header } from "@/components/dashboard/header";
+import { PlayerCollectibleCard } from "../stats/player-collectible-card";
+import { useAuth } from "@/hooks/use-auth";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { CheckCircle2, XCircle } from "lucide-react";
+import { useEffect, useState } from "react";
+import { players as initialPlayers } from "@/lib/mock-data";
+
+
+interface ProfileClientProps {
+  players: Player[];
+}
+
+export default function ProfileClient({ players: initialSquad }: ProfileClientProps) {
+  const { auth, loading } = useAuth();
+  const [squad, setSquad] = useState<Player[]>(initialSquad);
+
+  useEffect(() => {
+    if (!auth.teamId) return;
+    const PLAYERS_STORAGE_KEY = `${auth.teamId}_players`;
+
+    const loadPlayers = () => {
+        try {
+            const storedPlayers = localStorage.getItem(PLAYERS_STORAGE_KEY);
+            setSquad(storedPlayers ? JSON.parse(storedPlayers) : initialPlayers);
+        } catch (error) {
+            console.error(error);
+            setSquad(initialPlayers);
+        }
+    }
+    
+    loadPlayers();
+    
+    window.addEventListener('teamDataUpdated', loadPlayers);
+    return () => {
+        window.removeEventListener('teamDataUpdated', loadPlayers);
+    }
+  }, [auth.teamId]);
+  
+  const player = squad.find(p => p.id.toString() === auth.id);
+
+  if (loading || !player) {
+    return (
+      <div>
+        <Header title="Carregando Perfil..." pageContext="profile" />
+        <div className="grid md:grid-cols-3 gap-8">
+            <Skeleton className="h-64" />
+            <Skeleton className="h-96 md:col-span-2" />
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <Header title="Meu Perfil" pageContext="profile" />
+
+      <div className="grid lg:grid-cols-3 gap-8 items-start">
+        <div className="lg:col-span-1 space-y-6">
+             <Card>
+                <CardHeader>
+                    <CardTitle>Frequência</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                     <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                        <div className="flex items-center gap-2">
+                            <CheckCircle2 className="text-green-500" />
+                            <span className="font-medium">Presenças</span>
+                        </div>
+                        <span className="font-bold font-mono text-lg">{player.attendances || 0}</span>
+                    </div>
+                     <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                        <div className="flex items-center gap-2">
+                            <XCircle className="text-red-500" />
+                            <span className="font-medium">Faltas</span>
+                        </div>
+                        <span className="font-bold font-mono text-lg">{player.absences || 0}</span>
+                    </div>
+                </CardContent>
+            </Card>
+        </div>
+
+        <div className="lg:col-span-2">
+            <PlayerCollectibleCard player={player} />
+        </div>
+      </div>
+    </div>
+  );
+}

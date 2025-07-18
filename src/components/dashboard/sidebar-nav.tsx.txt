@@ -1,0 +1,129 @@
+
+'use client';
+
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { cn } from '@/lib/utils';
+import type { AuthInfo } from '@/hooks/use-auth';
+import { Button } from '@/components/ui/button';
+import {
+  BarChart3,
+  ClipboardList,
+  DoorOpen,
+  LayoutDashboard,
+  LogOut,
+  Settings,
+  Swords,
+  Ticket,
+  Users,
+  Landmark,
+  UserCircle,
+  Calendar,
+  Gamepad2,
+  Trophy
+} from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+
+
+interface SidebarNavProps {
+  auth: AuthInfo;
+  logout: () => void;
+}
+
+const adminNavItems = [
+  { href: '/dashboard', label: 'Painel', icon: LayoutDashboard },
+  { href: '/dashboard/squad', label: 'Elenco', icon: Users },
+  { href: '/dashboard/matches', label: 'Eventos', icon: Swords },
+  { href: '/dashboard/calendar', label: 'Calendário', icon: Calendar },
+  { href: '/dashboard/championships', label: 'Campeonatos', icon: Trophy },
+  { href: '/dashboard/tactics', label: 'Tática', icon: ClipboardList },
+  { href: '/dashboard/stats', label: 'Estatísticas', icon: BarChart3 },
+  { href: '/dashboard/game', label: 'Jogo', icon: Gamepad2 },
+  { href: '/dashboard/locker-room', label: 'Vestiário', icon: DoorOpen },
+  { href: '/dashboard/betting', label: 'Apostas', icon: Ticket },
+  { href: '/dashboard/finances', label: 'Caixa do Clube', icon: Landmark },
+  { href: '/dashboard/settings', label: 'Configurações', icon: Settings },
+];
+
+const playerNavItems = [
+  { href: '/dashboard', label: 'Painel', icon: LayoutDashboard },
+  { href: '/dashboard/profile', label: 'Meu Perfil', icon: UserCircle },
+  { href: '/dashboard/calendar', label: 'Calendário', icon: Calendar },
+  { href: '/dashboard/championships', label: 'Campeonatos', icon: Trophy },
+  { href: '/dashboard/stats', label: 'Estatísticas', icon: BarChart3 },
+  { href: '/dashboard/game', label: 'Jogo', icon: Gamepad2 },
+  { href: '/dashboard/locker-room', label: 'Vestiário', icon: DoorOpen },
+  { href: '/dashboard/betting', label: 'Apostas', icon: Ticket },
+  { href: '/dashboard/finances', label: 'Caixa do Clube', icon: Landmark },
+];
+
+export function SidebarNav({ auth, logout }: SidebarNavProps) {
+  const pathname = usePathname();
+  const navItems = auth.role === 'admin' ? adminNavItems : playerNavItems;
+  const [teamInfo, setTeamInfo] = useState({ name: 'Meu Fut', logo: ''});
+
+  useEffect(() => {
+    if (!auth.teamId) return;
+
+    const teamNameKey = `${auth.teamId}_teamName`;
+    const teamLogoKey = `${auth.teamId}_teamLogo`;
+
+    const updateTeamInfo = () => {
+      const storedName = localStorage.getItem(teamNameKey) || 'Meu Fut';
+      const storedLogo = localStorage.getItem(teamLogoKey) || '';
+      setTeamInfo({ name: storedName, logo: storedLogo });
+    };
+    
+    updateTeamInfo();
+
+    const handleDataUpdate = (event: Event) => {
+        const customEvent = event as CustomEvent;
+        if (customEvent.detail.teamId === auth.teamId) {
+            updateTeamInfo();
+        }
+    };
+
+    window.addEventListener('teamDataUpdated', handleDataUpdate);
+    return () => {
+      window.removeEventListener('teamDataUpdated', handleDataUpdate);
+    };
+  }, [auth.teamId]);
+
+  return (
+    <aside className="w-64 flex-col border-r border-primary/10 bg-background/50 p-4 hidden md:flex">
+      <div className="flex-1">
+        <Link href="/dashboard" className="flex items-center gap-3 mb-8">
+          <Avatar>
+              <AvatarImage src={teamInfo.logo} alt="Logo do Time" data-ai-hint="team logo" />
+              <AvatarFallback>{teamInfo.name.slice(0,2).toUpperCase()}</AvatarFallback>
+          </Avatar>
+          <h2 className="font-headline text-2xl font-bold text-glow truncate">{teamInfo.name}</h2>
+        </Link>
+        <nav className="flex flex-col gap-2">
+          {navItems.map((item) => (
+            <Link key={item.href} href={item.href}>
+              <Button
+                variant={pathname.startsWith(item.href) && (item.href !== '/dashboard' || pathname === '/dashboard') ? 'default' : 'ghost'}
+                className="w-full justify-start gap-3 text-base h-12"
+              >
+                <item.icon className="h-5 w-5" />
+                {item.label}
+              </Button>
+            </Link>
+          ))}
+        </nav>
+      </div>
+      <div className="mt-auto">
+        <div className="p-2 mb-4 rounded-lg bg-muted/50 border border-primary/10">
+            <p className="text-sm font-bold">{auth.name}</p>
+            <p className="text-xs text-primary">{auth.role === 'admin' ? 'Administrador' : 'Jogador'}</p>
+        </div>
+        <Button variant="ghost" className="w-full justify-start gap-3" onClick={logout}>
+          <LogOut className="h-5 w-5" />
+          Sair
+        </Button>
+      </div>
+    </aside>
+  );
+}

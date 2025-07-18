@@ -1,0 +1,75 @@
+
+'use client';
+
+import { useState, useEffect, type ReactNode } from 'react';
+import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription } from "@/components/ui/alert-dialog";
+import { Progress } from "@/components/ui/progress";
+
+interface ProgressDialogProps {
+  isOpen: boolean;
+  onOpenChange: (isOpen: boolean) => void;
+  title: string;
+  description?: string;
+  icon: ReactNode;
+  duration: number; // in milliseconds
+  onFinished?: () => void;
+}
+
+export function ProgressDialog({ 
+  isOpen, 
+  onOpenChange, 
+  title, 
+  description, 
+  icon, 
+  duration, 
+  onFinished 
+}: ProgressDialogProps) {
+  const [progress, setProgress] = useState(0);
+
+  useEffect(() => {
+    if (isOpen) {
+      setProgress(0); // Reset progress when opened
+
+      const interval = setInterval(() => {
+        setProgress(prev => {
+          if (prev >= 100) {
+            clearInterval(interval);
+            return 100;
+          }
+          // Calculate increment to reach 100% in the given duration
+          return prev + (100 / (duration / 100));
+        });
+      }, 100);
+
+      const timer = setTimeout(() => {
+        if (onFinished) {
+          onFinished();
+        } else {
+          onOpenChange(false);
+        }
+      }, duration);
+
+      return () => {
+        clearTimeout(timer);
+        clearInterval(interval);
+      };
+    }
+  }, [isOpen, duration, onFinished, onOpenChange]);
+
+  return (
+    <AlertDialog open={isOpen} onOpenChange={onOpenChange}>
+      <AlertDialogContent>
+        <AlertDialogHeader className="items-center text-center">
+          {icon}
+          <AlertDialogTitle className="font-headline text-2xl text-glow">{title}</AlertDialogTitle>
+          {description && (
+            <AlertDialogDescription>
+              {description}
+            </AlertDialogDescription>
+          )}
+        </AlertDialogHeader>
+        <Progress value={progress} className="w-full h-2 mt-2" />
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}

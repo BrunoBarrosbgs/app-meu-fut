@@ -1,0 +1,347 @@
+'use client';
+
+import { cn } from "@/lib/utils";
+import { SoccerBallIcon } from "@/components/icons/soccer-ball-icon";
+import { useState, useEffect, useRef, type SVGProps } from "react";
+import { Crosshair } from 'lucide-react';
+import { Label } from "@/components/ui/label";
+
+// NEW Professional Goalkeeper SVG components
+const GoalkeeperIdleIcon = (props: SVGProps<SVGSVGElement>) => (
+    <svg viewBox="0 0 60 70" fill="none" {...props}>
+        {/* Skin Tone */}
+        <circle cx="30" cy="15" r="7" fill="#FDE0C5" stroke="#502d16" strokeWidth="0.75" />
+        {/* Jersey */}
+        <path d="M20 22 L15 45 H45 L40 22 Z" fill="#1e40af" stroke="#1c358a" strokeWidth="1" />
+        <path d="M20 25 L10 38 L15 45 Z" fill="#1e40af" stroke="#1c358a" strokeWidth="1"/>
+        <path d="M40 25 L50 38 L45 45 Z" fill="#1e40af" stroke="#1c358a" strokeWidth="1"/>
+        {/* Shorts */}
+        <path d="M15 45 H45 L42 55 H18 Z" fill="#1d4ed8" stroke="#1c358a" strokeWidth="1" />
+        {/* Socks */}
+        <path d="M22 55 L20 68" stroke="#1e40af" strokeWidth="6" strokeLinecap="round" />
+        <path d="M38 55 L40 68" stroke="#1e40af" strokeWidth="6" strokeLinecap="round" />
+        {/* Gloves */}
+        <ellipse cx="8" cy="40" rx="4" ry="5" fill="#FFFFFF" stroke="#333" strokeWidth="0.5" />
+        <ellipse cx="52" cy="40" rx="4" ry="5" fill="#FFFFFF" stroke="#333" strokeWidth="0.5" />
+    </svg>
+);
+
+const GoalkeeperDiveSideIcon = (props: SVGProps<SVGSVGElement>) => (
+    <svg viewBox="0 0 100 60" fill="none" {...props}>
+        <g transform="rotate(-30 50 30)">
+            {/* Head */}
+            <circle cx="20" cy="25" r="7" fill="#FDE0C5" stroke="#502d16" strokeWidth="0.75" />
+            {/* Torso */}
+            <path d="M30 15 L25 40 H65 L60 15 Z" fill="#1e40af" stroke="#1c358a" strokeWidth="1" />
+            {/* Arms (Stretched) */}
+            <path d="M30 18 L70 10 L68 15 Z" fill="#1e40af" stroke="#1c358a" strokeWidth="1"/>
+            <path d="M40 35 L15 45 L20 40 Z" fill="#1e40af" stroke="#1c358a" strokeWidth="1"/>
+             {/* Gloves */}
+            <ellipse cx="72" cy="8" rx="4" ry="5" fill="#FFFFFF" stroke="#333" strokeWidth="0.5" />
+             <ellipse cx="14" cy="47" rx="4" ry="5" fill="#FFFFFF" stroke="#333" strokeWidth="0.5" />
+            {/* Shorts */}
+            <path d="M25 40 H65 L62 50 H28 Z" fill="#1d4ed8" stroke="#1c358a" strokeWidth="1" />
+            {/* Legs (Bent) */}
+            <path d="M35 50 L25 58" stroke="#1e40af" strokeWidth="6" strokeLinecap="round" />
+            <path d="M55 48 L45 55" stroke="#1e40af" strokeWidth="6" strokeLinecap="round" />
+        </g>
+    </svg>
+);
+
+const GoalkeeperDiveCenterIcon = (props: SVGProps<SVGSVGElement>) => (
+    <svg viewBox="0 0 60 80" fill="none" {...props}>
+        {/* Head */}
+        <circle cx="30" cy="18" r="7" fill="#FDE0C5" stroke="#502d16" strokeWidth="0.75" />
+        {/* Torso */}
+        <path d="M20 25 L15 50 H45 L40 25 Z" fill="#1e40af" stroke="#1c358a" strokeWidth="1" />
+        {/* Shorts */}
+        <path d="M15 50 H45 L42 60 H18 Z" fill="#1d4ed8" stroke="#1c358a" strokeWidth="1" />
+        {/* Arms (Up) */}
+        <path d="M20 28 L5 15 L10 12 L15 25 Z" fill="#1e40af" stroke="#1c358a" strokeWidth="1"/>
+        <path d="M40 28 L55 15 L50 12 L45 25 Z" fill="#1e40af" stroke="#1c358a" strokeWidth="1"/>
+        {/* Legs */}
+        <path d="M22 60 L20 75" stroke="#1e40af" strokeWidth="6" strokeLinecap="round" />
+        <path d="M38 60 L40 75" stroke="#1e40af" strokeWidth="6" strokeLinecap="round" />
+        {/* Gloves */}
+        <ellipse cx="4" cy="13" rx="4" ry="5" fill="#FFFFFF" stroke="#333" strokeWidth="0.5" />
+        <ellipse cx="56" cy="13" rx="4" ry="5" fill="#FFFFFF" stroke="#333" strokeWidth="0.5" />
+    </svg>
+);
+
+
+interface GoalAreaProps {
+    onShoot: (shot: { zoneIndex: number; power: number }) => void;
+    disabled: boolean;
+    shotResult?: { zoneIndex: number | null; isGoal: boolean; keeperZone: number; isMiss: boolean; power: number; } | null;
+}
+
+// Positions for each of the 9 zones (top-left, top-center, ... bottom-right)
+const zonePositions = [
+  { top: '25%', left: '25%' }, { top: '25%', left: '50%' }, { top: '25%', left: '75%' },
+  { top: '60%', left: '25%' }, { top: '60%', left: '50%' }, { top: '60%', left: '75%' },
+  { top: '90%', left: '25%' }, { top: '90%', left: '50%' }, { top: '90%', left: '75%' },
+];
+
+export function GoalArea({ onShoot, disabled, shotResult }: GoalAreaProps) {
+    const [showResultText, setShowResultText] = useState<'goal' | 'saved' | 'miss' | null>(null);
+    const [isDragging, setIsDragging] = useState(false);
+    const [targetPos, setTargetPos] = useState<{ x: number; y: number } | null>(null);
+    const goalAreaRef = useRef<HTMLDivElement>(null);
+
+    const [power, setPower] = useState(0);
+    const [powerDirection, setPowerDirection] = useState<'up' | 'down'>('up');
+
+     useEffect(() => {
+        let frameId: number;
+        const animate = () => {
+            setPower(p => {
+                const newPower = powerDirection === 'up' ? p + 1.5 : p - 1.5;
+                if (newPower >= 100) setPowerDirection('down');
+                if (newPower <= 0) setPowerDirection('up');
+                return Math.max(0, Math.min(100, newPower));
+            });
+            frameId = requestAnimationFrame(animate);
+        }
+        if (!disabled) {
+            frameId = requestAnimationFrame(animate);
+        } else {
+            setPower(0);
+            setPowerDirection('up');
+        }
+        return () => cancelAnimationFrame(frameId);
+    }, [disabled, powerDirection]);
+
+    useEffect(() => {
+        if (shotResult) {
+            let resultText: 'goal' | 'saved' | 'miss' | null = null;
+            if (shotResult.isMiss) resultText = 'miss';
+            else if (shotResult.isGoal) resultText = 'goal';
+            else resultText = 'saved';
+            setShowResultText(resultText);
+
+            const timer = setTimeout(() => setShowResultText(null), 1200);
+            return () => clearTimeout(timer);
+        }
+    }, [shotResult]);
+
+    const handleInteractionStart = (e: React.MouseEvent | React.TouchEvent) => {
+        if (disabled) return;
+        e.preventDefault();
+        setIsDragging(true);
+    };
+
+    const handleInteractionMove = (e: React.MouseEvent | React.TouchEvent) => {
+        if (!isDragging || disabled || !goalAreaRef.current) return;
+        e.preventDefault();
+        
+        const rect = goalAreaRef.current.getBoundingClientRect();
+        let clientX, clientY;
+
+        if ('touches' in e) {
+            clientX = e.touches[0].clientX;
+            clientY = e.touches[0].clientY;
+        } else {
+            clientX = e.clientX;
+            clientY = e.clientY;
+        }
+
+        const x = Math.min(Math.max(clientX - rect.left, 0), rect.width);
+        const y = Math.min(Math.max(clientY - rect.top, 0), rect.height);
+        
+        setTargetPos({ x, y });
+    };
+
+    const handleInteractionEnd = () => {
+        if (!isDragging || disabled || !targetPos || !goalAreaRef.current) return;
+        
+        const rect = goalAreaRef.current.getBoundingClientRect();
+        const goalWidth = rect.width;
+        // We only consider the top 85% of the area for shooting, to not make it too easy to shoot low
+        const goalHeight = rect.height * 0.85;
+
+        // Map the continuous position to one of the 9 discrete zones.
+        const col = Math.min(Math.floor((targetPos.x / goalWidth) * 3), 2);
+        const row = Math.min(Math.floor((targetPos.y / goalHeight) * 3), 2);
+        const zoneIndex = row * 3 + col;
+        
+        onShoot({ zoneIndex, power });
+
+        setIsDragging(false);
+        setTargetPos(null);
+    };
+    
+    const GoalkeeperComponent = () => {
+        if (!shotResult || shotResult.isMiss) {
+            return <GoalkeeperIdleIcon className="w-full h-full" />;
+        }
+
+        const zone = shotResult.keeperZone;
+        const isLeft = zone % 3 === 0;
+        const isRight = zone % 3 === 2;
+
+        if (isLeft || isRight) {
+            return (
+                <GoalkeeperDiveSideIcon
+                    className="w-full h-full"
+                    style={{ transform: isRight ? 'scaleX(-1)' : 'none' }}
+                />
+            );
+        }
+        
+        // Center column dive (upwards)
+        return <GoalkeeperDiveCenterIcon className="w-full h-full" />;
+    };
+    
+    const keeperPositionStyle: React.CSSProperties = (() => {
+        if (!shotResult || shotResult.isMiss) {
+          return { // Idle position
+            top: '90%',
+            left: '50%',
+            transform: 'translate(-50%, -100%)',
+            width: '30%',
+            height: '35%',
+          };
+        }
+
+        const zone = shotResult.keeperZone;
+        const isCenterDive = zone === 1 || zone === 4 || zone === 7;
+        
+        // No rotation, just scaling for a more impactful dive.
+        const diveTransform = 'translate(-50%, -50%) scale(1.1)';
+        
+        return { // Diving position
+          ...zonePositions[zone],
+          transform: diveTransform,
+          width: isCenterDive ? '30%' : '50%',
+          height: isCenterDive ? '40%' : '30%',
+        };
+    })();
+    
+    const ballAnimationDuration = shotResult ? Math.max(200, 450 - shotResult.power * 2.5) : 300;
+    
+    let ballPositionStyle: React.CSSProperties = { 
+        top: '95%', 
+        left: '50%',
+        transitionDuration: `${ballAnimationDuration}ms`,
+    };
+    if (shotResult) {
+        if (shotResult.isMiss) {
+             ballPositionStyle = { ...ballPositionStyle, top: '5%', left: '110%', transform: 'translate(-50%, -50%) scale(1.2)', transitionDuration: '400ms' };
+        } else if (shotResult.zoneIndex !== null) {
+            ballPositionStyle = { ...ballPositionStyle, ...zonePositions[shotResult.zoneIndex] };
+        }
+    }
+
+
+    const getPowerBarColor = (powerValue: number) => {
+        if (powerValue > 90) return 'bg-red-500';
+        if (powerValue > 60) return 'bg-yellow-400';
+        return 'bg-green-500';
+    };
+
+    return (
+        <div className="flex flex-col items-center gap-4 w-full">
+            <div 
+                className="relative aspect-video w-full max-w-2xl mx-auto rounded-lg overflow-hidden shadow-inner cursor-crosshair"
+                onMouseDown={handleInteractionStart}
+                onMouseMove={handleInteractionMove}
+                onMouseUp={handleInteractionEnd}
+                onMouseLeave={handleInteractionEnd} // End drag if mouse leaves the area
+                onTouchStart={handleInteractionStart}
+                onTouchMove={handleInteractionMove}
+                onTouchEnd={handleInteractionEnd}
+                ref={goalAreaRef}
+            >
+                {/* Background: Sky and Grass */}
+                <div className="absolute inset-0 bg-gradient-to-t from-[#1b5e20] to-[#01579b]" />
+                <div className="absolute bottom-0 left-0 w-full h-1/2 bg-gradient-to-t from-green-700 via-green-700/80 to-transparent" />
+                
+                {/* Goal structure */}
+                <div className="absolute top-[10%] left-[10%] w-[80%] h-[80%] border-8 border-l-gray-200 border-t-gray-200 border-r-gray-200 border-b-transparent rounded-t-lg shadow-2xl">
+                    {/* Net pattern */}
+                    <div 
+                        className="absolute inset-0 bg-repeat opacity-20" 
+                        style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg width='10' height='10' viewBox='0 0 10 10' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M-1 1l2-2M0 10l10-10M9 11l2-2' stroke='%23fff' stroke-width='0.5' fill='none'/%3E%3C/svg%3E")` }}
+                    />
+                </div>
+
+                {/* Drag Target Indicator */}
+                {isDragging && targetPos && (
+                    <Crosshair 
+                        className="absolute text-white/80 z-40 pointer-events-none" 
+                        style={{ left: `${targetPos.x}px`, top: `${targetPos.y}px`, transform: 'translate(-50%, -50%)' }}
+                        size={32}
+                    />
+                )}
+
+                {/* Goalkeeper */}
+                <div 
+                    className={cn(
+                        "absolute z-20 transition-all duration-300 ease-in-out drop-shadow-2xl"
+                    )}
+                    style={keeperPositionStyle}
+                >
+                    <GoalkeeperComponent />
+                </div>
+
+                {/* Soccer Ball that flies */}
+                <div 
+                    className={cn(
+                        "absolute z-30 transition-all ease-in-out",
+                        disabled ? "scale-75 rotate-[360deg]" : "scale-100 rotate-0"
+                    )}
+                    style={{
+                        ...ballPositionStyle,
+                        transform: 'translate(-50%, -50%)',
+                    }}
+                >
+                    <SoccerBallIcon className="w-8 h-8 drop-shadow-lg" />
+                </div>
+
+                {/* Result Text & Celebration */}
+                {showResultText && (
+                    <div className="absolute inset-0 flex items-center justify-center z-40 pointer-events-none">
+                        {showResultText === 'goal' && (
+                            <div 
+                                className="absolute inset-0 bg-radial-gradient-celebration animate-in fade-in-0 zoom-in-75 duration-500"
+                                style={{
+                                    background: 'radial-gradient(circle at 50% 50%, rgba(255, 235, 59, 0.4) 0%, rgba(255, 235, 59, 0) 70%)',
+                                }}
+                            />
+                        )}
+                        <p className={cn(
+                            "font-headline text-7xl md:text-9xl text-white drop-shadow-[0_5px_10px_rgba(0,0,0,0.7)] animate-in fade-in-0 zoom-in-125 duration-300",
+                            showResultText === 'goal' && 'text-glow animate-bounce',
+                            showResultText === 'saved' && 'text-destructive',
+                            showResultText === 'miss' && 'text-yellow-400',
+                        )}>
+                            {showResultText === 'goal' ? 'GOL!' : showResultText === 'miss' ? 'FORA!' : 'DEFENDEU!'}
+                        </p>
+                    </div>
+                )}
+                
+                {/* The penalty spot ball that user interacts with */}
+                {!disabled && (
+                    <div 
+                        className="absolute top-[95%] left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 group"
+                        onMouseDown={handleInteractionStart} 
+                        onTouchStart={handleInteractionStart}
+                    >
+                        <SoccerBallIcon className="w-10 h-10 text-white drop-shadow-lg cursor-pointer group-hover:scale-110 transition-transform" />
+                    </div>
+                )}
+            </div>
+
+             {/* Power Bar */}
+            <div className="w-full max-w-sm">
+                <Label className="text-center block mb-1 text-sm font-medium text-muted-foreground">Força do Chute</Label>
+                <div className="w-full bg-muted rounded-full h-4 relative overflow-hidden border border-black/20">
+                    <div
+                        className={cn("h-full rounded-full transition-colors duration-75", getPowerBarColor(power))}
+                        style={{ width: `${power}%` }}
+                    />
+                </div>
+            </div>
+        </div>
+    );
+}

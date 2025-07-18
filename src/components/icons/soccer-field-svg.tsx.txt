@@ -1,0 +1,59 @@
+import type { SVGProps } from 'react';
+
+export function SoccerFieldSvg(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 520 800"
+      preserveAspectRatio="xMidYMid meet"
+      {...props}
+    >
+      <defs>
+        <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="3" result="coloredBlur" />
+          <feMerge>
+            <feMergeNode in="coloredBlur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+      </defs>
+      <rect width="520" height="800" fill="#013220" />
+      {/* Field Lines with glow */}
+      <g stroke="hsl(var(--primary) / 0.7)" strokeWidth="2" filter="url(#glow)">
+        {/* Outer lines */}
+        <rect x="20" y="20" width="480" height="760" fill="none" />
+        {/* Center line */}
+        <line x1="20" y1="400" x2="500" y2="400" />
+        {/* Center circle */}
+        <circle cx="260" cy="400" r="70" fill="none" />
+        
+        {/* Top penalty area */}
+        <rect x="100" y="20" width="320" height="130" fill="none" />
+        {/* Top goal area */}
+        <rect x="180" y="20" width="160" height="50" fill="none" />
+        {/* Top penalty arc */}
+        <path d="M 170 150 A 70 70 0 0 0 350 150" fill="none" />
+
+        {/* Bottom penalty area */}
+        <rect x="100" y="650" width="320" height="130" fill="none" />
+        {/* Bottom goal area */}
+        <rect x="180" y="730" width="160" height="50" fill="none" />
+        {/* Bottom penalty arc */}
+        <path d="M 170 650 A 70 70 0 0 1 350 650" fill="none" />
+
+        {/* Corner arcs */}
+        <path d="M 30 20 A 10 10 0 0 0 20 30" fill="none" />
+        <path d="M 500 30 A 10 10 0 0 1 490 20" fill="none" />
+        <path d="M 20 770 A 10 10 0 0 1 30 780" fill="none" />
+        <path d="M 490 780 A 10 10 0 0 1 500 770" fill="none" />
+      </g>
+      
+      {/* Spots */}
+      <g fill="hsl(var(--primary) / 0.8)">
+        <circle cx="260" cy="400" r="3" />
+        <circle cx="260" cy="100" r="3" />
+        <circle cx="260" cy="700" r="3" />
+      </g>
+    </svg>
+  );
+}

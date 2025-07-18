@@ -1,0 +1,287 @@
+
+'use client';
+
+import { useState, useEffect } from "react";
+import type { Championship, Player, ChampionshipStandout } from "@/lib/types";
+import { useAuth } from "@/hooks/use-auth";
+import { Header } from "@/components/dashboard/header";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Trophy, Star, PlusCircle, MoreVertical, Pencil, Trash2 } from "lucide-react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useToast } from "@/hooks/use-toast";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+
+interface ChampionshipsClientProps {
+    initialChampionships: Championship[];
+    players: Player[];
+}
+
+const positionStyles: { [key: number]: string } = {
+    1: 'border-yellow-400 bg-yellow-500/10 text-yellow-400',
+    2: 'border-slate-400 bg-slate-500/10 text-slate-400',
+    3: 'border-amber-600 bg-amber-600/10 text-amber-500',
+};
+const defaultPositionStyle = 'border-muted-foreground/50 bg-muted/20 text-muted-foreground';
+
+const getPositionText = (pos: number) => {
+    if (pos === 1) return 'Campeão';
+    if (pos === 2) return 'Vice-Campeão';
+    return `${pos}º Lugar`;
+};
+
+const initialFormState = {
+    id: null as number | null,
+    name: '',
+    year: new Date().getFullYear(),
+    finalPosition: 1,
+    highlights: '',
+    standouts: [] as Partial<ChampionshipStandout>[],
+};
+
+export default function ChampionshipsClient({ initialChampionships, players }: ChampionshipsClientProps) {
+    const { auth } = useAuth();
+    const { toast } = useToast();
+    const [championships, setChampionships] = useState<Championship[]>(initialChampionships);
+    const [isFormOpen, setFormOpen] = useState(false);
+    const [formState, setFormState] = useState(initialFormState);
+
+    useEffect(() => {
+        try {
+            const storedChampionships = localStorage.getItem('resenha_fc_championships');
+            if (storedChampionships) {
+                setChampionships(JSON.parse(storedChampionships));
+            } else {
+                 setChampionships(initialChampionships);
+                 localStorage.setItem('resenha_fc_championships', JSON.stringify(initialChampionships));
+            }
+        } catch (error) {
+            console.error(error);
+            setChampionships(initialChampionships);
+        }
+    }, [initialChampionships]);
+    
+    const saveChampionshipsToStorage = (champs: Championship[]) => {
+        setChampionships(champs);
+        localStorage.setItem('resenha_fc_championships', JSON.stringify(champs));
+    };
+
+    const resetForm = () => {
+        setFormState(initialFormState);
+    };
+
+    const handleOpenFormForAdd = () => {
+        resetForm();
+        setFormOpen(true);
+    };
+
+    const handleOpenFormForEdit = (champ: Championship) => {
+        setFormState({
+            id: champ.id,
+            name: champ.name,
+            year: champ.year,
+            finalPosition: champ.finalPosition,
+            highlights: champ.highlights,
+            standouts: champ.standouts || [],
+        });
+        setFormOpen(true);
+    };
+
+    const handleFormInputChange = (field: keyof typeof formState, value: any) => {
+        setFormState(prev => ({ ...prev, [field]: value }));
+    };
+
+    const handleAddStandout = () => {
+        setFormState(prev => ({ ...prev, standouts: [...(prev.standouts || []), { playerId: undefined, description: '' }] }));
+    };
+    
+    const handleStandoutChange = (index: number, field: keyof ChampionshipStandout, value: any) => {
+        const newStandouts = [...(formState.standouts || [])];
+        newStandouts[index] = { ...newStandouts[index], [field]: value };
+        setFormState(prev => ({...prev, standouts: newStandouts}));
+    };
+    
+    const handleRemoveStandout = (index: number) => {
+        const newStandouts = (formState.standouts || []).filter((_, i) => i !== index);
+        setFormState(prev => ({...prev, standouts: newStandouts}));
+    };
+
+    const handleSaveChampionship = () => {
+        const { id, name, year, finalPosition, highlights, standouts } = formState;
+        if (!name || !year || !finalPosition || !highlights) {
+            toast({ variant: 'destructive', title: 'Preencha todos os campos obrigatórios.' });
+            return;
+        }
+
+        const championshipData: Championship = {
+            id: id || Date.now(),
+            name,
+            year: Number(year),
+            finalPosition: Number(finalPosition),
+            highlights,
+            standouts: (standouts || []).filter(s => s.playerId && s.description) as ChampionshipStandout[],
+        };
+
+        let updatedChampionships;
+        if (id) { // Editing
+            updatedChampionships = championships.map(c => c.id === id ? championshipData : c);
+            toast({ title: 'Campeonato atualizado com sucesso!' });
+        } else { // Adding
+            updatedChampionships = [...championships, championshipData];
+            toast({ title: 'Campeonato adicionado com sucesso!' });
+        }
+        
+        saveChampionshipsToStorage(updatedChampionships);
+        resetForm();
+        setFormOpen(false);
+    };
+    
+    const handleDeleteChampionship = (id: number) => {
+        const updatedChampionships = championships.filter(c => c.id !== id);
+        saveChampionshipsToStorage(updatedChampionships);
+        toast({ title: 'Campeonato removido.' });
+    };
+
+    return (
+        <div>
+            <div className="flex justify-between items-center">
+                <Header title="Galeria de Campeonatos" pageContext="championships" />
+                {auth.role === 'admin' && (
+                     <Button className="gap-2" onClick={handleOpenFormForAdd}><PlusCircle /> Adicionar Campeonato</Button>
+                )}
+            </div>
+
+             <Dialog open={isFormOpen} onOpenChange={(isOpen) => { setFormOpen(isOpen); if(!isOpen) resetForm(); }}>
+                <DialogContent className="max-w-2xl">
+                    <DialogHeader>
+                        <DialogTitle>{formState.id ? 'Editar' : 'Registrar Novo'} Campeonato</DialogTitle>
+                        <DialogDescription>
+                            {formState.id ? 'Atualize as informações desta conquista.' : 'Adicione uma nova conquista à galeria do time.'}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4 max-h-[70vh] overflow-y-auto pr-2">
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2"><Label>Nome do Campeonato</Label><Input value={formState.name} onChange={e => handleFormInputChange('name', e.target.value)} /></div>
+                            <div className="space-y-2"><Label>Ano</Label><Input type="number" value={formState.year} onChange={e => handleFormInputChange('year', e.target.value)} /></div>
+                        </div>
+                        <div className="space-y-2"><Label>Posição Final</Label><Input type="number" value={formState.finalPosition} onChange={e => handleFormInputChange('finalPosition', e.target.value)} /></div>
+                        <div className="space-y-2"><Label>Destaques (resumo da campanha)</Label><Textarea value={formState.highlights} onChange={e => handleFormInputChange('highlights', e.target.value)} /></div>
+                        <div>
+                            <Label>Jogadores de Destaque</Label>
+                            <div className="space-y-3 mt-2">
+                                {(formState.standouts || []).map((standout, index) => (
+                                    <div key={index} className="flex gap-2 items-start p-3 border rounded-md relative">
+                                        <div className="flex-grow grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                            <Select value={standout.playerId?.toString()} onValueChange={value => handleStandoutChange(index, 'playerId', Number(value))}>
+                                                <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                                                <SelectContent>{players.map(p => <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>)}</SelectContent>
+                                            </Select>
+                                            <Textarea placeholder="Descrição do destaque..." value={standout.description} onChange={e => handleStandoutChange(index, 'description', e.target.value)} />
+                                        </div>
+                                        <Button variant="ghost" size="icon" className="text-destructive flex-shrink-0" onClick={() => handleRemoveStandout(index)}><Trash2 size={16} /></Button>
+                                    </div>
+                                ))}
+                            </div>
+                            <Button variant="outline" size="sm" onClick={handleAddStandout} className="mt-2">Adicionar Destaque</Button>
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <DialogClose asChild><Button variant="outline">Cancelar</Button></DialogClose>
+                        <Button onClick={handleSaveChampionship}>Salvar</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <div className="space-y-8">
+                {championships.sort((a,b) => b.year - a.year).map(champ => (
+                    <Card key={champ.id} className="overflow-hidden relative">
+                         {auth.role === 'admin' && (
+                            <div className="absolute top-2 right-2">
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                        <Button variant="ghost" size="icon">
+                                            <MoreVertical className="h-4 w-4" />
+                                        </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end">
+                                        <DropdownMenuItem onClick={() => handleOpenFormForEdit(champ)}><Pencil className="mr-2 h-4 w-4" /> Editar</DropdownMenuItem>
+                                        <AlertDialog>
+                                            <AlertDialogTrigger asChild>
+                                                <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive"><Trash2 className="mr-2 h-4 w-4" /> Excluir</DropdownMenuItem>
+                                            </AlertDialogTrigger>
+                                            <AlertDialogContent>
+                                                <AlertDialogHeader>
+                                                    <AlertDialogTitle>Tem certeza?</AlertDialogTitle>
+                                                    <AlertDialogDescription>Esta ação removerá o campeonato "{champ.name}" permanentemente. Não é possível desfazer.</AlertDialogDescription>
+                                                </AlertDialogHeader>
+                                                <AlertDialogFooter>
+                                                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                                    <AlertDialogAction onClick={() => handleDeleteChampionship(champ.id)} className="bg-destructive hover:bg-destructive/90">Sim, excluir</AlertDialogAction>
+                                                </AlertDialogFooter>
+                                            </AlertDialogContent>
+                                        </AlertDialog>
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
+                            </div>
+                        )}
+                        <CardHeader className="flex-row items-center justify-between bg-muted/30 pr-16">
+                            <div>
+                                <CardTitle className="font-headline text-2xl text-primary">{champ.name}</CardTitle>
+                                <CardDescription>{champ.year}</CardDescription>
+                            </div>
+                            <div className={cn("text-center rounded-lg p-3 border-2", positionStyles[champ.finalPosition] || defaultPositionStyle)}>
+                                <Trophy className="mx-auto h-8 w-8" />
+                                <p className="font-bold mt-1 text-lg">{getPositionText(champ.finalPosition)}</p>
+                            </div>
+                        </CardHeader>
+                        <CardContent className="p-6 grid md:grid-cols-2 gap-6">
+                            <div>
+                                <h3 className="font-bold mb-2">Destaques do Campeonato</h3>
+                                <p className="text-sm text-muted-foreground">{champ.highlights}</p>
+                            </div>
+                            <div>
+                                <h3 className="font-bold mb-2">Jogadores de Destaque</h3>
+                                {champ.standouts.length > 0 ? (
+                                    <div className="space-y-3">
+                                        {champ.standouts.map((standout, index) => {
+                                            const player = players.find(p => p.id === standout.playerId);
+                                            if (!player) return null;
+                                            return (
+                                                <div key={index} className="flex items-start gap-3">
+                                                    <Avatar>
+                                                        <AvatarImage src={player.avatarUrl} alt={player.name} data-ai-hint="player photo" />
+                                                        <AvatarFallback>{player.name.charAt(0)}</AvatarFallback>
+                                                    </Avatar>
+                                                    <div>
+                                                        <p className="font-semibold text-sm">{player.name}</p>
+                                                        <p className="text-xs text-muted-foreground flex items-center gap-1"><Star size={12} className="text-yellow-400" />{standout.description}</p>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                ) : (
+                                    <p className="text-sm text-muted-foreground">Nenhum jogador de destaque registrado.</p>
+                                )}
+                            </div>
+                        </CardContent>
+                    </Card>
+                ))}
+                 {championships.length === 0 && (
+                    <Card className="text-center p-8">
+                        <Trophy className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
+                        <CardTitle>Nenhum Campeonato Registrado</CardTitle>
+                        <CardDescription>O Diretor pode adicionar a primeira conquista!</CardDescription>
+                    </Card>
+                )}
+            </div>
+        </div>
+    );
+}
